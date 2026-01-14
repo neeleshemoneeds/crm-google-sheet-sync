@@ -1,95 +1,143 @@
+# ===============================
+# CRM → Google Sheet Auto Sync
+# ===============================
+
 import os
 import json
+import time
 import requests
 import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
+from oauth2client.service_account import ServiceAccountCredentials
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ===============================
 # ENV VARIABLES (GitHub Secrets)
 # ===============================
+
+CRM_API_TOKEN = os.environ.get("CRM_API_TOKEN")
 SHEET_ID = os.environ.get("SHEET_ID")
 SERVICE_ACCOUNT_JSON = os.environ.get("SERVICE_ACCOUNT_JSON")
-CRM_API_TOKEN = os.environ.get("CRM_API_TOKEN")
 
-if not SHEET_ID or not SERVICE_ACCOUNT_JSON or not CRM_API_TOKEN:
-    raise Exception("❌ Missing GitHub Secrets")
+if not CRM_API_TOKEN:
+    raise Exception("❌ CRM_API_TOKEN missing")
+
+if not SHEET_ID:
+    raise Exception("❌ SHEET_ID missing")
+
+if not SERVICE_ACCOUNT_JSON:
+    raise Exception("❌ SERVICE_ACCOUNT_JSON missing")
 
 # ===============================
-# GOOGLE SHEETS AUTH
+# GOOGLE SHEET CONNECT
 # ===============================
-service_account_info = json.loads(SERVICE_ACCOUNT_JSON)
 
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
+creds_dict = json.loads(SERVICE_ACCOUNT_JSON)
+
+scope = [
+    "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds = Credentials.from_service_account_info(
-    service_account_info, scopes=scopes
-)
-
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 spreadsheet = client.open_by_key(SHEET_ID)
-sheet = spreadsheet.worksheet("Leads")
 
-# ===============================
-# CLEAR OLD DATA (keep header)
-# ===============================
+try:
+    sheet = spreadsheet.worksheet("Leads")
+except:
+    sheet = spreadsheet.add_worksheet(title="Leads", rows="1000", cols="50")
+
 sheet.clear()
 
 # ===============================
-# CRM API CONFIG
+# CRM API SETUP
 # ===============================
+
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 
-START_DATE = "2024-01-01"   # aap chaaho to change kar sakte ho
-OFFSET = 0
-ALL_ROWS = []
-HEADERS = None
-TOTAL_FETCHED = 0
+STAGE_IDS = (
+    "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,"
+    "43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,"
+    "66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,"
+    "88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,"
+    "107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,"
+    "123,124,125,126,127,128,129,130,131,132,133"
+)
+
+# ===============================
+# REQUEST SESSION (RETRY + TIMEOUT)
+# ===============================
+
+session = requests.Session()
+
+retries = Retry(
+    total=5,
+    backoff_factor=2,
+    status_forcelist=[500, 502, 503, 504],
+    allowed_methods=["POST"]
+)
+
+session.mount("https://", HTTPAdapter(max_retries=retries))
 
 # ===============================
 # FETCH DATA WITH PAGINATION
 # ===============================
+
+offset = 0
+limit = 200
+headers_written = False
+total_rows = 0
+
 while True:
     payload = {
         "token": CRM_API_TOKEN,
-        "lead_date_after": START_DATE,
-        "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133",
-        "lead_offset": OFFSET
+        "lead_date_after": "2025-01-01",   # ⬅️ जरूरत हो तो बदलेंगे
+        "stage_id": STAGE_IDS,
+        "lead_offset": offset,
+        "limit": limit
     }
 
-    response = requests.post(API_URL, data=payload, timeout=60)
+    print(f"➡️ Fetching leads offset={offset}")
+
+    response = session.post(API_URL, data=payload, timeout=180)
+
     data = response.json()
 
     leads = data.get("lead_data", [])
 
     if not leads:
+        print("✅ No more leads found")
         break
 
-    if HEADERS is None:
-        HEADERS = [k for k in leads[0].keys()
-                   if k not in ("comments", "statuslog")]
-        ALL_ROWS.append(HEADERS)
+    # Write headers once
+    if not headers_written:
+        headers = [
+            k for k in leads[0].keys()
+            if k not in ("comments", "statuslog")
+        ]
+        sheet.append_row(headers)
+        headers_written = True
 
-    for item in leads:
+    rows = []
+    for lead in leads:
         row = []
-        for h in HEADERS:
-            v = item.get(h, "")
-            if isinstance(v, (dict, list)):
-                v = json.dumps(v)
-            row.append(v)
-        ALL_ROWS.append(row)
+        for h in headers:
+            val = lead.get(h, "")
+            if isinstance(val, (dict, list)):
+                val = json.dumps(val)
+            row.append(val)
+        rows.append(row)
 
-    OFFSET += len(leads)
-    TOTAL_FETCHED += len(leads)
+    sheet.append_rows(rows)
 
-# ===============================
-# WRITE TO SHEET
-# ===============================
-if ALL_ROWS:
-    sheet.update("A1", ALL_ROWS)
+    fetched = len(rows)
+    total_rows += fetched
+    offset += fetched
 
-print(f"✅ DONE — Total leads fetched: {TOTAL_FETCHED}")
+    print(f"✅ Fetched {fetched} leads (Total: {total_rows})")
+
+    time.sleep(2)  # API ko rest
+
+print("🎉 SYNC COMPLETED SUCCESSFULLY")
