@@ -3,59 +3,110 @@ import json
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
+from datetime import datetime, timedelta
+import time
 
-# ------------------ CONFIG ------------------
-API_URL = os.environ["CRM_API_URL"]
-API_TOKEN = os.environ["CRM_API_TOKEN"]
-SHEET_ID = os.environ["SHEET_ID"]
+# ================= CONFIG =================
+API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
-# ------------------ GOOGLE SHEET LOGIN ------------------
-service_account_info = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
-scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
-client = gspread.authorize(creds)
+REQUEST_TIMEOUT = 30
+PAGE_LIMIT = 200
+MAX_PAGES = 50   # safety stop (200 x 50 = 10,000 leads max)
 
-sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
+# ================ SECRETS =================
+CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
+SHEET_ID = os.environ["SHEET_ID"]
+SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
 
-# Clear old data (except header)
+# =========== GOOGLE SHEET AUTH ============
+creds = Credentials.from_service_account_info(
+    SERVICE_ACCOUNT_JSON,
+    scopes=[
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+)
+
+gc = gspread.authorize(creds)
+sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
+
+# ⚠️ Har run me sheet fresh hogi
 sheet.clear()
 
-# ------------------ CRM FETCH ------------------
-all_leads = []
-offset = 0
-limit = 31  # CRM page size
+# ============ DATE FILTER =================
+lead_date_after = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-while True:
+# ============ INTERNAL STATE ==============
+seen_ids = set()
+headers_written = False
+headers = []
+total = 0
+page = 0
+
+print("🚀 Sync started")
+print("Lead date after:", lead_date_after)
+
+# ============ MAIN LOOP ===================
+while page < MAX_PAGES:
+    offset = page * PAGE_LIMIT
+
     payload = {
-        "token": API_TOKEN,
-        "lead_offset": offset
+        "token": CRM_API_TOKEN,
+        "lead_date_after": lead_date_after,
+        "lead_limit": PAGE_LIMIT,
+        "lead_offset": offset,   # ✅ VERY IMPORTANT (pagination)
+        "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
-    response = requests.post(API_URL, data=payload, timeout=60)
-    data = response.json().get("data", [])
+    print(f"➡️ Page {page+1} | offset {offset}")
 
-    print(f"Fetched {len(data)} leads at offset {offset}")
+    response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+
+    data = response.json().get("lead_data", [])
+    print("API returned leads:", len(data))
 
     if not data:
+        print("❌ No more data from API. Stopping.")
         break
 
-    all_leads.extend(data)
-    offset += limit
+    new_rows = []
 
-print("Total leads fetched:", len(all_leads))
+    for item in data:
+        lead_id = item.get("lead_id") or item.get("id")
+        if not lead_id:
+            continue
 
-# ------------------ WRITE TO SHEET ------------------
-if not all_leads:
-    print("No data received from CRM")
-    exit()
+        if lead_id in seen_ids:
+            continue
 
-headers = list(all_leads[0].keys())
-rows = [headers]
+        seen_ids.add(lead_id)
 
-for lead in all_leads:
-    rows.append([str(lead.get(h, "")) for h in headers])
+        if not headers_written:
+            headers = list(item.keys())
+            sheet.append_row(headers)
+            headers_written = True
 
-sheet.update("A1", rows)
+        row = []
+        for h in headers:
+            v = item.get(h, "")
+            if isinstance(v, (dict, list)):
+                v = json.dumps(v, ensure_ascii=False)
+            row.append(v)
 
-print("✅ Sheet updated successfully")
+        new_rows.append(row)
+
+    if not new_rows:
+        print("⚠️ No new unique leads found. Stopping.")
+        break
+
+    sheet.append_rows(new_rows, value_input_option="RAW")
+    total += len(new_rows)
+
+    print(f"✅ Added {len(new_rows)} leads | Total: {total}")
+
+    page += 1
+    time.sleep(1)   # CRM safe delay
+
+print(f"🎉 DONE. Total unique leads synced: {total}")
