@@ -27,7 +27,8 @@ gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 sheet.clear()
 
-lead_date_after = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+lead_date_after = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
 
 seen_ids = set()
 headers_written = False
@@ -45,6 +46,8 @@ while page < MAX_PAGES:
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     data = response.json().get("lead_data", [])
+    print("API returned leads:", len(data))
+
 
     if not data:
         break
