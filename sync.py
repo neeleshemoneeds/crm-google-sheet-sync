@@ -93,7 +93,7 @@ total_rows = 0
 while True:
     payload = {
         "token": CRM_API_TOKEN,
-        "lead_date_after": "2025-01-01",   # ⬅️ जरूरत हो तो बदलेंगे
+        "lead_date_after": "2026-01-01",   # ⬅️ जरूरत हो तो बदलेंगे
         "stage_id": STAGE_IDS,
         "lead_offset": offset,
         "limit": limit
