@@ -44,7 +44,7 @@ lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print("From:", lead_date_after)
 print("To  :", lead_date_before)
 
-# ================= HEADERS =================
+# ================= REQUIRED HEADERS =================
 HEADERS = [
     "Lead ID",
     "Assigned Date",
@@ -63,30 +63,31 @@ HEADERS = [
     "Last Sync Time"
 ]
 
-# ================= READ EXISTING DATA =================
-existing = sheet.get_all_values()
-lead_map = {}   # lead_id -> (row_index, update_date)
+# ================= HEADER AUTO FIX =================
+header = sheet.row_values(1)
 
-# 🔐 HEADER SAFETY (REPLACED PART)
-if not existing:
+if not header or header != HEADERS:
+    print("⚠️ Fixing / Creating Sheet Header")
+    sheet.clear()
     sheet.append_row(HEADERS)
     header = HEADERS
-else:
-    header = existing[0]
-    if "Lead ID" not in header or "Update Date" not in header:
-        raise Exception("❌ Sheet header missing: 'Lead ID' or 'Update Date' column not found")
 
 id_idx = header.index("Lead ID")
 upd_idx = header.index("Update Date")
 
+# ================= READ EXISTING DATA =================
+existing = sheet.get_all_values()
+lead_map = {}  # lead_id -> (row_number, update_date)
+
 for i, row in enumerate(existing[1:], start=2):
-    if len(row) > upd_idx and row[id_idx]:
+    if len(row) > upd_idx:
         lead_map[row[id_idx]] = (i, row[upd_idx])
 
 sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 page = 0
-total_updated = 0
 total_new = 0
+total_updated = 0
 
 # ================= MAIN LOOP =================
 while page < MAX_PAGES:
@@ -100,20 +101,20 @@ while page < MAX_PAGES:
         "lead_offset": offset
     }
 
-    print(f"➡️ Page {page+1}")
+    print(f"➡️ Fetching page {page + 1}")
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
-    data = response.json().get("lead_data", [])
-    print("API returned:", len(data))
+    leads = response.json().get("lead_data", [])
+    print("API returned:", len(leads))
 
-    if not data:
+    if not leads:
         break
 
     new_rows = []
 
-    for item in data:
+    for item in leads:
         lead_id = str(item.get("lead_id") or item.get("id"))
         update_date = item.get("updated_at", "")
 
@@ -151,7 +152,7 @@ while page < MAX_PAGES:
     page += 1
     time.sleep(1)
 
-print("🎉 DONE")
-print("🆕 New leads added:", total_new)
-print("♻️ Leads updated   :", total_updated)
+print("🎉 SYNC COMPLETED")
+print("🆕 New leads added :", total_new)
+print("♻️ Leads updated  :", total_updated)
 print("🕒 Last Sync Time :", sync_time)
