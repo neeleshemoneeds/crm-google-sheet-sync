@@ -67,16 +67,21 @@ HEADERS = [
 existing = sheet.get_all_values()
 lead_map = {}   # lead_id -> (row_index, update_date)
 
-if existing:
-    header = existing[0]
-    id_idx = header.index("Lead ID")
-    upd_idx = header.index("Update Date")
-
-    for i, row in enumerate(existing[1:], start=2):
-        if len(row) > upd_idx:
-            lead_map[row[id_idx]] = (i, row[upd_idx])
-else:
+# 🔐 HEADER SAFETY (REPLACED PART)
+if not existing:
     sheet.append_row(HEADERS)
+    header = HEADERS
+else:
+    header = existing[0]
+    if "Lead ID" not in header or "Update Date" not in header:
+        raise Exception("❌ Sheet header missing: 'Lead ID' or 'Update Date' column not found")
+
+id_idx = header.index("Lead ID")
+upd_idx = header.index("Update Date")
+
+for i, row in enumerate(existing[1:], start=2):
+    if len(row) > upd_idx and row[id_idx]:
+        lead_map[row[id_idx]] = (i, row[upd_idx])
 
 sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 page = 0
@@ -130,7 +135,7 @@ while page < MAX_PAGES:
             sync_time
         ]
 
-        # 🧠 SMART LOGIC
+        # 🧠 SMART SYNC LOGIC
         if lead_id in lead_map:
             row_num, old_update = lead_map[lead_id]
             if old_update != update_date:
