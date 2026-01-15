@@ -1,10 +1,10 @@
 import os
 import json
+import time
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
@@ -14,11 +14,10 @@ REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
 MAX_PAGES = 50
 
-# ================ MANUAL START DATE =================
-# 🔴 YAHAN APNI DATE DAALE (YYYY-MM-DD)
+# 🔴 MANUAL START DATE (YAHAN CHANGE KARO)
 START_DATE = "2025-12-26"
 
-# ================ SECRETS =================
+# ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
 SHEET_ID = os.environ["SHEET_ID"]
 SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
@@ -44,7 +43,7 @@ lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print("From:", lead_date_after)
 print("To  :", lead_date_before)
 
-# ================= REQUIRED HEADERS =================
+# ================= HEADERS =================
 HEADERS = [
     "Lead ID",
     "Assigned Date",
@@ -63,31 +62,33 @@ HEADERS = [
     "Last Sync Time"
 ]
 
-# ================= HEADER AUTO FIX =================
-header = sheet.row_values(1)
+# ================= ENSURE HEADER =================
+existing = sheet.get_all_values()
 
-if not header or header != HEADERS:
-    print("⚠️ Fixing / Creating Sheet Header")
-    sheet.clear()
+if not existing:
     sheet.append_row(HEADERS)
     header = HEADERS
+else:
+    header = existing[0]
+    if "Lead ID" not in header or "Update Date" not in header:
+        sheet.clear()
+        sheet.append_row(HEADERS)
+        header = HEADERS
 
 id_idx = header.index("Lead ID")
 upd_idx = header.index("Update Date")
 
-# ================= READ EXISTING DATA =================
-existing = sheet.get_all_values()
-lead_map = {}  # lead_id -> (row_number, update_date)
+# ================= EXISTING MAP =================
+lead_map = {}
 
 for i, row in enumerate(existing[1:], start=2):
     if len(row) > upd_idx:
         lead_map[row[id_idx]] = (i, row[upd_idx])
 
 sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 page = 0
-total_new = 0
-total_updated = 0
+new_count = 0
+updated_count = 0
 
 # ================= MAIN LOOP =================
 while page < MAX_PAGES:
@@ -106,19 +107,20 @@ while page < MAX_PAGES:
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
-    leads = response.json().get("lead_data", [])
-    print("API returned:", len(leads))
+    data = response.json().get("lead_data", [])
 
-    if not leads:
+    print("API returned:", len(data))
+
+    if not data:
         break
 
     new_rows = []
 
-    for item in leads:
-        lead_id = str(item.get("lead_id") or item.get("id"))
+    for item in data:
+        lead_id = str(item.get("lead_id") or item.get("id", ""))
         update_date = item.get("updated_at", "")
 
-        row_data = [
+        row = [
             lead_id,
             item.get("assigned_date", ""),
             item.get("assigned_to", ""),
@@ -136,15 +138,14 @@ while page < MAX_PAGES:
             sync_time
         ]
 
-        # 🧠 SMART SYNC LOGIC
         if lead_id in lead_map:
             row_num, old_update = lead_map[lead_id]
             if old_update != update_date:
-                sheet.update(f"A{row_num}:O{row_num}", [row_data])
-                total_updated += 1
+                sheet.update(f"A{row_num}:O{row_num}", [row])
+                updated_count += 1
         else:
-            new_rows.append(row_data)
-            total_new += 1
+            new_rows.append(row)
+            new_count += 1
 
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
@@ -153,6 +154,6 @@ while page < MAX_PAGES:
     time.sleep(1)
 
 print("🎉 SYNC COMPLETED")
-print("🆕 New leads added :", total_new)
-print("♻️ Leads updated  :", total_updated)
-print("🕒 Last Sync Time :", sync_time)
+print("🆕 New leads:", new_count)
+print("♻️ Updated leads:", updated_count)
+print("🕒 Last Sync:", sync_time)
