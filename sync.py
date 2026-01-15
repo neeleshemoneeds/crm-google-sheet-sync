@@ -1,10 +1,10 @@
 import os
 import json
+import time
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
-import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
@@ -12,9 +12,13 @@ SHEET_TAB = "Leads"
 
 REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
-MAX_PAGES = 50   # safety stop (200 x 50 = 10,000 leads max)
+MAX_PAGES = 50   # max 10,000 leads
 
-# ================ SECRETS =================
+# 🔴 MANUAL START DATE (YAHAN CHANGE KAR SAKTE HO)
+START_DATE = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+# Example: "2025-01-01"
+
+# ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
 SHEET_ID = os.environ["SHEET_ID"]
 SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
@@ -31,16 +35,9 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# ⚠️ Har run me sheet fresh hogi
-sheet.clear()
+print("🚀 Sync started")
 
-sheet.append_row(HEADERS)
-headers_written = True
-
-# ============ DATE FILTER =================
-lead_date_after = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-
-# ============ CUSTOM HEADERS =================
+# ================= HEADERS =================
 HEADERS = [
     "Lead ID",
     "Assigned Date",
@@ -58,18 +55,20 @@ HEADERS = [
     "Next Call-back Date"
 ]
 
+# ⚠️ Sheet fresh run
+sheet.clear()
+sheet.append_row(HEADERS)
 
-# ============ INTERNAL STATE ==============
+# ================= DATE FILTER =================
+lead_date_after = START_DATE
+print("Lead date after:", lead_date_after)
+
+# ================= INTERNAL STATE =================
 seen_ids = set()
-headers_written = False
-headers = []
 total = 0
 page = 0
 
-print("🚀 Sync started")
-print("Lead date after:", lead_date_after)
-
-# ============ MAIN LOOP ===================
+# ================= MAIN LOOP =================
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
 
@@ -77,11 +76,11 @@ while page < MAX_PAGES:
         "token": CRM_API_TOKEN,
         "lead_date_after": lead_date_after,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": offset,   # ✅ VERY IMPORTANT (pagination)
+        "lead_offset": offset,
         "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
-    print(f"➡️ Page {page+1} | offset {offset}")
+    print(f"➡️ Page {page + 1} | offset {offset}")
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
@@ -90,7 +89,7 @@ while page < MAX_PAGES:
     print("API returned leads:", len(data))
 
     if not data:
-        print("❌ No more data from API. Stopping.")
+        print("❌ No more data. Stopping.")
         break
 
     new_rows = []
@@ -105,30 +104,27 @@ while page < MAX_PAGES:
 
         seen_ids.add(lead_id)
 
-        
-
         row = [
-    item.get("lead_id") or item.get("id", ""),
-    item.get("assigned_date", ""),
-    item.get("assigned_to", ""),
-    item.get("lead_date", ""),
-    item.get("city", ""),
-    item.get("phone", ""),
-    item.get("name", ""),
-    item.get("treatment", ""),
-    item.get("updated_at", ""),
-    item.get("source", ""),
-    item.get("stage", ""),
-    item.get("keyword", ""),
-    item.get("last_comment", ""),
-    item.get("next_callback_date", "")
-]
-
+            lead_id,
+            item.get("assigned_date", ""),
+            item.get("assigned_to", ""),
+            item.get("lead_date", ""),
+            item.get("city", ""),
+            item.get("phone", ""),
+            item.get("name", ""),
+            item.get("treatment", ""),
+            item.get("updated_at", ""),
+            item.get("source", ""),
+            item.get("stage", ""),
+            item.get("keyword", ""),
+            item.get("last_comment", ""),
+            item.get("next_callback_date", "")
+        ]
 
         new_rows.append(row)
 
     if not new_rows:
-        print("⚠️ No new unique leads found. Stopping.")
+        print("⚠️ No new unique leads found.")
         break
 
     sheet.append_rows(new_rows, value_input_option="RAW")
@@ -137,7 +133,6 @@ while page < MAX_PAGES:
     print(f"✅ Added {len(new_rows)} leads | Total: {total}")
 
     page += 1
-    time.sleep(1)   # CRM safe delay
+    time.sleep(1)  # CRM safe delay
 
 print(f"🎉 DONE. Total unique leads synced: {total}")
-
