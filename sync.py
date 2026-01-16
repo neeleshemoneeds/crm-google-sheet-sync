@@ -10,9 +10,10 @@ import time
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 90   # 🔥 FIX: 30 → 90 sec
 PAGE_LIMIT = 200
 MAX_PAGES = 50
+MAX_RETRIES = 3        # 🔥 FIX: retry count
 
 # ============ MANUAL DATE RANGE ============
 MANUAL_START_DATE = "2025-01-01"
@@ -38,32 +39,27 @@ sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 lead_date_after = MANUAL_START_DATE
 lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# ============ READ EXISTING DATA ============
+# ============ EXISTING DATA ============
 existing_data = sheet.get_all_records()
 existing_leads = {}
-
 for idx, row in enumerate(existing_data, start=2):
-    lead_id = row.get("lead_id") or row.get("id")
-    if lead_id:
-        existing_leads[str(lead_id)] = idx
+    lid = row.get("lead_id") or row.get("id")
+    if lid:
+        existing_leads[str(lid)] = idx
 
 headers = sheet.row_values(1)
-if not headers:
-    headers = []
-
 status_col_index = headers.index("lead_status") + 1 if "lead_status" in headers else None
+
+print("🚀 Sync started")
+print("From:", lead_date_after, "To:", lead_date_before)
 
 page = 0
 total_new = 0
 total_updated = 0
 
-print("🚀 Sync started")
-print("From:", lead_date_after, "To:", lead_date_before)
-
 # ============ MAIN LOOP ===================
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
-
     payload = {
         "token": CRM_API_TOKEN,
         "lead_date_after": lead_date_after,
@@ -73,8 +69,17 @@ while page < MAX_PAGES:
         "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
-    response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
+    # 🔁 RETRY LOOP
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            break
+        except requests.exceptions.ReadTimeout:
+            print(f"⏳ Timeout page {page+1}, retry {attempt}/{MAX_RETRIES}")
+            if attempt == MAX_RETRIES:
+                raise
+            time.sleep(5)
 
     data = response.json().get("lead_data", [])
     if not data:
@@ -88,16 +93,12 @@ while page < MAX_PAGES:
         if not lead_id:
             continue
 
-        # -------- EXISTING LEAD → STATUS UPDATE --------
         if lead_id in existing_leads and status_col_index:
-            row_num = existing_leads[lead_id]
             status_updates.append({
-                "range": gspread.utils.rowcol_to_a1(row_num, status_col_index),
+                "range": gspread.utils.rowcol_to_a1(existing_leads[lead_id], status_col_index),
                 "values": [[item.get("lead_status", "")]]
             })
             total_updated += 1
-
-        # -------- NEW LEAD --------
         else:
             if not headers:
                 headers = list(item.keys())
@@ -113,7 +114,6 @@ while page < MAX_PAGES:
             new_rows.append(row)
             total_new += 1
 
-    # 🔥 BULK WRITE (quota safe)
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
 
