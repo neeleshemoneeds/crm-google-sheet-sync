@@ -2,47 +2,49 @@ import os
 import requests
 
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
-
 TOKEN = os.environ.get("CRM_API_TOKEN")
 
 if not TOKEN:
     raise Exception("❌ CRM_API_TOKEN missing")
-
-payload = {
-    "token": TOKEN,
-    "stage_id": 1,      # 🔥 REQUIRED
-    "limit": 1,
-    "offset": 0
-}
 
 headers = {
     "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
 }
 
-print("🔍 Fetching sample lead (WITH stage_id)...")
+FOUND = False
 
-response = requests.post(
-    API_URL,
-    data=payload,
-    headers=headers,
-    timeout=60
-)
+for stage_id in range(1, 15):  # try stages 1–14
+    print(f"\n🔍 Trying stage_id = {stage_id}")
 
-print("Status:", response.status_code)
-print("Raw response:\n", response.text)
+    payload = {
+        "token": TOKEN,
+        "stage_id": stage_id,
+        "limit": 1,
+        "offset": 0
+    }
 
-response.raise_for_status()
+    response = requests.post(API_URL, data=payload, headers=headers)
+    print("Status:", response.status_code)
 
-data = response.json()
+    if response.status_code != 200:
+        continue
 
-lead_data = data.get("lead_data")
+    data = response.json()
+    leads = data.get("lead_data", [])
 
-if not lead_data:
-    raise Exception("❌ lead_data missing")
+    if leads:
+        print(f"\n✅ LEAD FOUND in stage {stage_id}\n")
+        sample = leads[0]
 
-sample = lead_data[0]
+        print("📌 ACTUAL KEYS:\n")
+        for k in sample.keys():
+            print("-", k)
 
-print("\n✅ ACTUAL KEYS FROM CRM:\n")
-for k in sample.keys():
-    print("-", k)
+        FOUND = True
+        break
+    else:
+        print("❌ No leads in this stage")
+
+if not FOUND:
+    raise Exception("❌ No leads found in any stage")
