@@ -56,19 +56,24 @@ if not existing:
     lead_row_map = {}
 else:
     lead_row_map = {
-        row[0]: idx + 2   # header ke baad actual row number
+        row[0]: idx + 2
         for idx, row in enumerate(existing[1:])
         if row and row[0]
     }
-
-# ============ DATE FILTER =================
-lead_date_after = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
 print("🚀 Smart Sync Started")
 
 total_new = 0
 total_updated = 0
 page = 0
+
+# ============ SAFE CONVERTER ==============
+def safe_value(v):
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
 
 # ============ MAIN LOOP ===================
 while page < MAX_PAGES:
@@ -89,29 +94,23 @@ while page < MAX_PAGES:
         break
 
     for item in data:
-        lead_id = str(item.get("lead_id", "")).strip()
+        lead_id = safe_value(item.get("lead_id"))
         if not lead_id:
             continue
 
-        # ✅ SAFE VALUE HANDLER (VERY IMPORTANT)
-        def safe(v):
-            if isinstance(v, (dict, list)):
-                return json.dumps(v, ensure_ascii=False)
-            return v or ""
-
         row_data = [
             lead_id,
-            safe(item.get("lead_name")),
-            safe(item.get("lead_phone")),
-            safe(item.get("lead_email")),
-            safe(item.get("lead_source")),
-            safe(item.get("lead_stage")),
-            safe(item.get("treatment")),
-            safe(item.get("lead_created_at")),
-            safe(item.get("lead_updated_at")),
-            safe(item.get("nextcallback_at")),
-            safe(item.get("comments")),
-            safe(item.get("statuslog")),
+            safe_value(item.get("lead_name")),
+            safe_value(item.get("lead_phone")),
+            safe_value(item.get("lead_email")),
+            safe_value(item.get("lead_source")),
+            safe_value(item.get("lead_stage")),
+            safe_value(item.get("treatment")),
+            safe_value(item.get("lead_created_at")),
+            safe_value(item.get("lead_updated_at")),
+            safe_value(item.get("nextcallback_at")),
+            safe_value(item.get("comments")),     # ✅ LIST → STRING
+            safe_value(item.get("statuslog")),    # ✅ LIST → STRING
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
 
