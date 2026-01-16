@@ -40,18 +40,34 @@ sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 print("🚀 CRM → Google Sheet Sync Started")
 
-# ================= HEADERS =================
+# ================= COLUMN MAPPING (IMPORTANT) =================
+FIELD_MAP = {
+    "lead_id": ["lead_id", "id"],
+    "lead_name": ["name"],
+    "lead_phone": ["phone", "mobile"],
+    "lead_email": ["email"],
+    "lead_source": ["source"],
+    "lead_stage": ["stage_name", "stage_id"],
+    "treatment": ["treatment"],
+    "lead_created_at": ["lead_date", "created_at"],
+    "nextcallback_at": ["next_callback_date"],
+    "comments": ["last_comment"],
+    "last_updated": ["updated_at"]
+}
+
+# ================= READ HEADERS =================
 headers = sheet.row_values(1)
 if not headers:
-    raise Exception("❌ Sheet me headers nahi hain")
+    raise Exception("❌ Sheet headers missing")
 
 lead_id_col = headers.index("lead_id")
 
 existing_rows = sheet.get_all_values()[1:]
-existing_map = {}
-for i, row in enumerate(existing_rows, start=2):
+existing_ids = set()
+
+for row in existing_rows:
     if len(row) > lead_id_col and row[lead_id_col]:
-        existing_map[row[lead_id_col]] = i
+        existing_ids.add(row[lead_id_col])
 
 crm_ids = set()
 new_rows = []
@@ -89,34 +105,30 @@ for stage_id in STAGE_IDS:
 
             crm_ids.add(lead_id)
 
-            if lead_id in existing_map:
-                continue  # already exists
+            if lead_id in existing_ids:
+                continue
 
             row = []
             for h in headers:
-                v = item.get(h, "")
-                if isinstance(v, (dict, list)):
-                    v = json.dumps(v, ensure_ascii=False)
-                row.append(v)
+                value = ""
+                for api_key in FIELD_MAP.get(h, []):
+                    if api_key in item and item[api_key] not in (None, ""):
+                        value = item[api_key]
+                        break
+
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value, ensure_ascii=False)
+
+                row.append(value)
 
             new_rows.append(row)
 
         page += 1
         time.sleep(0.5)
 
-# ================= APPEND NEW =================
+# ================= APPEND =================
 if new_rows:
     sheet.append_rows(new_rows, value_input_option="RAW")
 
-# ================= REMOVE DELETED =================
-delete_rows = []
-for lid, row_num in existing_map.items():
-    if lid not in crm_ids:
-        delete_rows.append(row_num)
-
-for r in sorted(delete_rows, reverse=True):
-    sheet.delete_rows(r)
-
 print("🎉 SYNC COMPLETE")
 print("🆕 New Leads Added:", len(new_rows))
-print("🧹 Deleted Leads Removed:", len(delete_rows))
