@@ -14,9 +14,9 @@ PAGE_LIMIT = 200
 MAX_PAGES = 50
 REQUEST_TIMEOUT = 60
 
-# 🔥 START DATE (FIXED)
-START_DATE = datetime.strptime("2024-01-01", "%Y-%m-%d").date()
-TODAY_DATE = datetime.now().date()
+# 🔥 START DATE (LOCAL FILTER)
+START_DATE = datetime.strptime("2024-01-01", "%Y-%m-%d")
+CURRENT_YEAR = datetime.now().year
 
 # ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
@@ -57,7 +57,6 @@ else:
 
 print("🚀 Smart Sync Started")
 
-# =========== SAFE VALUE ===========
 def safe(v):
     if v is None:
         return ""
@@ -76,7 +75,7 @@ while page < MAX_PAGES:
         "token": CRM_API_TOKEN,
         "lead_limit": PAGE_LIMIT,
         "lead_offset": page * PAGE_LIMIT,
-        "stage_id": "15"   # confirmed working stage
+        "stage_id": "15"
     }
 
     res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
@@ -96,20 +95,17 @@ while page < MAX_PAGES:
             continue
 
         try:
-            created_dt = datetime.strptime(created_raw[:10], "%Y-%m-%d").date()
+            created_dt = datetime.strptime(created_raw[:10], "%Y-%m-%d")
         except:
             continue
 
-        # 🚫 HARD BLOCK FUTURE YEAR (CRM BUG FIX)
-CURRENT_YEAR = datetime.now().year
+        # ❌ HARD BLOCK FUTURE YEAR (CRM BUG FIX)
+        if created_dt.year > CURRENT_YEAR:
+            continue
 
-if created_dt.year > CURRENT_YEAR:
-    continue   # ❌ skip 2026, 2027 etc
-
-# ✅ START DATE FILTER
-if created_dt < START_DATE:
-    continue
-
+        # ❌ START DATE FILTER
+        if created_dt < START_DATE:
+            continue
 
         row = [
             lead_id,
@@ -137,11 +133,11 @@ if created_dt < START_DATE:
 
 # ================= WRITE TO SHEET =================
 
-# ✅ APPEND NEW LEADS (1 API CALL)
+# ✅ APPEND NEW LEADS
 if new_rows:
     sheet.append_rows(new_rows, value_input_option="RAW")
 
-# ✅ BULK UPDATE EXISTING LEADS (1 API CALL)
+# ✅ BULK UPDATE EXISTING LEADS
 if update_map:
     min_row = min(update_map.keys())
     max_row = max(update_map.keys())
