@@ -56,7 +56,7 @@ if not existing:
     lead_row_map = {}
 else:
     lead_row_map = {
-        row[0]: idx + 1
+        row[0]: idx + 2   # header ke baad actual row number
         for idx, row in enumerate(existing[1:])
         if row and row[0]
     }
@@ -93,19 +93,25 @@ while page < MAX_PAGES:
         if not lead_id:
             continue
 
+        # ✅ SAFE VALUE HANDLER (VERY IMPORTANT)
+        def safe(v):
+            if isinstance(v, (dict, list)):
+                return json.dumps(v, ensure_ascii=False)
+            return v or ""
+
         row_data = [
             lead_id,
-            item.get("lead_name", ""),
-            item.get("lead_phone", ""),
-            item.get("lead_email", ""),
-            item.get("lead_source", ""),
-            item.get("lead_stage", ""),
-            item.get("treatment", ""),
-            item.get("lead_created_at", ""),
-            item.get("lead_updated_at", ""),
-            item.get("nextcallback_at", ""),
-            item.get("comments", ""),
-            json.dumps(item.get("statuslog", ""), ensure_ascii=False),
+            safe(item.get("lead_name")),
+            safe(item.get("lead_phone")),
+            safe(item.get("lead_email")),
+            safe(item.get("lead_source")),
+            safe(item.get("lead_stage")),
+            safe(item.get("treatment")),
+            safe(item.get("lead_created_at")),
+            safe(item.get("lead_updated_at")),
+            safe(item.get("nextcallback_at")),
+            safe(item.get("comments")),
+            safe(item.get("statuslog")),
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
 
