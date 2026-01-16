@@ -4,15 +4,18 @@ import time
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
-REQUEST_TIMEOUT = 60
 PAGE_LIMIT = 200
 MAX_PAGES = 50
+REQUEST_TIMEOUT = 60
+
+# 🔹 CHANGE START DATE HERE
+START_DATE = "2024-01-01"   # YYYY-MM-DD
 
 # ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
@@ -21,19 +24,9 @@ SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
 
 # ================= HEADERS =================
 HEADERS = [
-    "Lead ID",
-    "Name",
-    "Phone",
-    "Email",
-    "Source",
-    "Stage",
-    "Treatment",
-    "Created Date",
-    "Updated Date",
-    "Next Callback",
-    "Comments",
-    "Status Log",
-    "Last Sync Time"
+    "Lead ID", "Name", "Phone", "Email", "Source", "Stage",
+    "Treatment", "Created Date", "Updated Date", "Next Callback",
+    "Comments", "Status Log", "Last Sync Time"
 ]
 
 # =========== GOOGLE SHEET AUTH ============
@@ -63,19 +56,23 @@ else:
 
 print("🚀 Smart Sync Started")
 
-total_new = 0
-total_updated = 0
-page = 0
-
-# ============ SAFE CONVERTER ==============
-def safe_value(v):
+# ============ SAFE VALUE ==================
+def safe(v):
     if v is None:
         return ""
     if isinstance(v, (dict, list)):
         return json.dumps(v, ensure_ascii=False)
     return str(v)
 
+# ============ DATE RANGE ==================
+today = datetime.now().strftime("%Y-%m-%d")
+
 # ============ MAIN LOOP ===================
+new_rows = []
+update_rows = []
+
+page = 0
+
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
 
@@ -83,7 +80,9 @@ while page < MAX_PAGES:
         "token": CRM_API_TOKEN,
         "lead_limit": PAGE_LIMIT,
         "lead_offset": offset,
-        "stage_id": "15"   # confirmed working stage
+        "stage_id": "15",
+        "from_date": START_DATE,
+        "to_date": today
     }
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
@@ -94,38 +93,47 @@ while page < MAX_PAGES:
         break
 
     for item in data:
-        lead_id = safe_value(item.get("lead_id"))
+        lead_id = safe(item.get("lead_id"))
         if not lead_id:
             continue
 
-        row_data = [
+        row = [
             lead_id,
-            safe_value(item.get("lead_name")),
-            safe_value(item.get("lead_phone")),
-            safe_value(item.get("lead_email")),
-            safe_value(item.get("lead_source")),
-            safe_value(item.get("lead_stage")),
-            safe_value(item.get("treatment")),
-            safe_value(item.get("lead_created_at")),
-            safe_value(item.get("lead_updated_at")),
-            safe_value(item.get("nextcallback_at")),
-            safe_value(item.get("comments")),     # ✅ LIST → STRING
-            safe_value(item.get("statuslog")),    # ✅ LIST → STRING
+            safe(item.get("lead_name")),
+            safe(item.get("lead_phone")),
+            safe(item.get("lead_email")),
+            safe(item.get("lead_source")),
+            safe(item.get("lead_stage")),
+            safe(item.get("treatment")),
+            safe(item.get("lead_created_at")),
+            safe(item.get("lead_updated_at")),
+            safe(item.get("nextcallback_at")),
+            safe(item.get("comments")),
+            safe(item.get("statuslog")),
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
 
         if lead_id in lead_row_map:
-            row_no = lead_row_map[lead_id]
-            sheet.update(f"A{row_no}:M{row_no}", [row_data])
-            total_updated += 1
+            update_rows.append((lead_row_map[lead_id], row))
         else:
-            sheet.append_row(row_data)
-            lead_row_map[lead_id] = sheet.row_count
-            total_new += 1
+            new_rows.append(row)
 
     page += 1
     time.sleep(1)
 
+# ============ BULK WRITE ==================
+# ✅ NEW LEADS (ONE CALL)
+if new_rows:
+    sheet.append_rows(new_rows, value_input_option="RAW")
+
+# ✅ UPDATES (LIMITED CALLS)
+for row_no, row_data in update_rows:
+    sheet.update(
+        range_name=f"A{row_no}:M{row_no}",
+        values=[row_data]
+    )
+    time.sleep(0.3)   # quota safe
+
 print("✅ SYNC COMPLETE")
-print(f"🆕 New leads added: {total_new}")
-print(f"🔁 Leads updated: {total_updated}")
+print(f"🆕 New leads added: {len(new_rows)}")
+print(f"🔁 Leads updated: {len(update_rows)}")
