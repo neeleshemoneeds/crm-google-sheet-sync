@@ -3,7 +3,7 @@ import json
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 
 # ================= CONFIG =================
@@ -12,10 +12,9 @@ SHEET_TAB = "Leads"
 
 REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
-MAX_PAGES = 50   # safety stop (200 x 50 = 10,000 leads max)
+MAX_PAGES = 50
 
-# ================ MANUAL DATE RANGE =================
-# 🔴 YAHAN APNI START DATE DAALE (YYYY-MM-DD)
+# ============ MANUAL DATE RANGE ============
 MANUAL_START_DATE = "2025-12-16"
 
 # ================ SECRETS =================
@@ -35,23 +34,28 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# ⚠️ Har run me sheet fresh hogi
-sheet.clear()
-
 # ============ DATE FILTER =================
 lead_date_after = MANUAL_START_DATE
 lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# ============ INTERNAL STATE ==============
-seen_ids = set()
-headers_written = False
-headers = []
-total = 0
+# ============ READ EXISTING DATA ============
+existing_data = sheet.get_all_records()
+existing_leads = {}
+
+for idx, row in enumerate(existing_data, start=2):
+    lead_id = row.get("lead_id") or row.get("id")
+    if lead_id:
+        existing_leads[str(lead_id)] = idx
+
+headers = sheet.row_values(1)
+status_col_index = headers.index("lead_status") + 1 if "lead_status" in headers else None
+
+total_new = 0
+total_updated = 0
 page = 0
 
 print("🚀 Sync started")
-print("Lead date after:", lead_date_after)
-print("Lead date before:", lead_date_before)
+print("From:", lead_date_after, "To:", lead_date_before)
 
 # ============ MAIN LOOP ===================
 while page < MAX_PAGES:
@@ -62,58 +66,46 @@ while page < MAX_PAGES:
         "lead_date_after": lead_date_after,
         "lead_date_before": lead_date_before,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": offset,   # ✅ pagination
+        "lead_offset": offset,
         "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
-
-    print(f"➡️ Page {page+1} | offset {offset}")
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
     data = response.json().get("lead_data", [])
-    print("API returned leads:", len(data))
-
     if not data:
-        print("❌ No more data from API. Stopping.")
         break
 
-    new_rows = []
-
     for item in data:
-        lead_id = item.get("lead_id") or item.get("id")
+        lead_id = str(item.get("lead_id") or item.get("id"))
         if not lead_id:
             continue
 
-        if lead_id in seen_ids:
-            continue
+        # ---------- UPDATE STATUS ----------
+        if lead_id in existing_leads and status_col_index:
+            row_num = existing_leads[lead_id]
+            sheet.update_cell(row_num, status_col_index, item.get("lead_status", ""))
+            total_updated += 1
+        else:
+            # ---------- NEW LEAD ----------
+            if not headers:
+                headers = list(item.keys())
+                sheet.append_row(headers)
 
-        seen_ids.add(lead_id)
+            row = []
+            for h in headers:
+                v = item.get(h, "")
+                if isinstance(v, (dict, list)):
+                    v = json.dumps(v, ensure_ascii=False)
+                row.append(v)
 
-        if not headers_written:
-            headers = list(item.keys())
-            sheet.append_row(headers)
-            headers_written = True
-
-        row = []
-        for h in headers:
-            v = item.get(h, "")
-            if isinstance(v, (dict, list)):
-                v = json.dumps(v, ensure_ascii=False)
-            row.append(v)
-
-        new_rows.append(row)
-
-    if not new_rows:
-        print("⚠️ No new unique leads found. Stopping.")
-        break
-
-    sheet.append_rows(new_rows, value_input_option="RAW")
-    total += len(new_rows)
-
-    print(f"✅ Added {len(new_rows)} leads | Total: {total}")
+            sheet.append_row(row, value_input_option="RAW")
+            total_new += 1
 
     page += 1
-    time.sleep(1)   # CRM safe delay
+    time.sleep(1)
 
-print(f"🎉 DONE. Total unique leads synced: {total}")
+print("🎉 DONE")
+print("🆕 New Leads:", total_new)
+print("🔁 Status Updated:", total_updated)
