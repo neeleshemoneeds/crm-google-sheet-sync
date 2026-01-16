@@ -14,8 +14,8 @@ PAGE_LIMIT = 200
 MAX_PAGES = 50
 REQUEST_TIMEOUT = 60
 
-# 🔥 CHANGE START DATE HERE
-START_DATE = "2024-01-01"   # YYYY-MM-DD
+# 🔥 START DATE (FILTER WILL BE APPLIED LOCALLY)
+START_DATE = datetime.strptime("2024-01-01", "%Y-%m-%d")
 
 # ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
@@ -63,21 +63,18 @@ def safe(v):
         return json.dumps(v, ensure_ascii=False)
     return str(v)
 
-today = datetime.now().strftime("%Y-%m-%d")
-
 new_rows = []
-update_map = {}  # row_no -> row_data
+update_map = {}
 
 page = 0
 
+# ================= MAIN LOOP =================
 while page < MAX_PAGES:
     payload = {
         "token": CRM_API_TOKEN,
         "lead_limit": PAGE_LIMIT,
         "lead_offset": page * PAGE_LIMIT,
-        "stage_id": "15",
-        "from_date": START_DATE,
-        "to_date": today
+        "stage_id": "15"
     }
 
     res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
@@ -91,6 +88,19 @@ while page < MAX_PAGES:
         lead_id = safe(item.get("lead_id"))
         if not lead_id:
             continue
+
+        # 🔥 CLIENT-SIDE DATE FILTER
+        created_raw = item.get("lead_created_at")
+        if not created_raw:
+            continue
+
+        try:
+            created_dt = datetime.strptime(created_raw[:10], "%Y-%m-%d")
+        except:
+            continue
+
+        if created_dt < START_DATE:
+            continue   # ❌ skip old leads
 
         row = [
             lead_id,
@@ -118,11 +128,11 @@ while page < MAX_PAGES:
 
 # ================= WRITE TO SHEET =================
 
-# ✅ APPEND NEW LEADS (ONE API CALL)
+# ✅ APPEND NEW LEADS (1 API CALL)
 if new_rows:
     sheet.append_rows(new_rows, value_input_option="RAW")
 
-# ✅ BULK UPDATE EXISTING LEADS (ONE API CALL)
+# ✅ BULK UPDATE EXISTING LEADS (1 API CALL)
 if update_map:
     min_row = min(update_map.keys())
     max_row = max(update_map.keys())
