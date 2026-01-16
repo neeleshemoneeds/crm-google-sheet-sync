@@ -117,22 +117,23 @@ while page < MAX_PAGES:
 
         seen_ids.add(lead_id)
 
-        rows.append([
-            lead_id,
-            item.get("assigned_date", ""),
-            item.get("assigned_to", ""),
-            item.get("lead_date", ""),
-            item.get("city", ""),
-            item.get("phone", ""),
-            item.get("name", ""),
-            item.get("treatment", ""),
-            item.get("updated_at", ""),
-            item.get("source", ""),
-            item.get("stage", ""),
-            item.get("keyword", ""),
-            item.get("last_comment", ""),
-            item.get("next_callback_date", "")
-        ])
+        row = [
+                item.get("lead_id") or item.get("id", ""),          # Lead ID
+                item.get("assigned_date", ""),                      # Assigned Date
+                item.get("assigned_user", ""),                      # Assigned To
+                item.get("lead_date", ""),                          # Date
+                item.get("city_name", ""),                          # City ✅
+                item.get("mobile", "") or item.get("phone", ""),    # Phone ✅
+                item.get("name", ""),                               # Name
+                item.get("treatment_name", ""),                     # Treatment ✅
+                item.get("updated_at", ""),                         # Update Date
+                item.get("source_name", ""),                        # Source ✅
+                item.get("stage_name", ""),                         # Stage ✅
+                item.get("keyword", ""),                            # Keyword
+                item.get("last_comment", ""),                       # Last Comment
+                item.get("next_callback_date", "")                  # Next Call-back Date
+            ]
+
 
     if rows:
         sheet.append_rows(rows, value_input_option="RAW")
