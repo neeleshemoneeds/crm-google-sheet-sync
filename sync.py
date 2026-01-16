@@ -1,36 +1,29 @@
 import os
 import json
-import time
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
+REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
 MAX_PAGES = 50
-REQUEST_TIMEOUT = 60
 
-# 🔥 START DATE (LOCAL FILTER)
-START_DATE = datetime.strptime("2024-01-01", "%Y-%m-%d")
-CURRENT_YEAR = datetime.now().year
+# ================ MANUAL START DATE =================
+# 🔴 YAHAN APNI DATE DAALE (YYYY-MM-DD)
+START_DATE = "2025-12-16"
 
-# ================= SECRETS =================
+# ================ SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
 SHEET_ID = os.environ["SHEET_ID"]
 SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
 
-# ================= HEADERS =================
-HEADERS = [
-    "Lead ID", "Name", "Phone", "Email", "Source", "Stage",
-    "Treatment", "Created Date", "Updated Date", "Next Callback",
-    "Comments", "Status Log", "Last Sync Time"
-]
-
-# =========== GOOGLE AUTH ============
+# =========== GOOGLE SHEET AUTH ============
 creds = Credentials.from_service_account_info(
     SERVICE_ACCOUNT_JSON,
     scopes=[
@@ -42,115 +35,118 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# =========== INIT SHEET ============
+print("🚀 Smart Sync started")
+
+# ================= DATE RANGE =================
+lead_date_after = START_DATE
+lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+print("From:", lead_date_after)
+print("To  :", lead_date_before)
+
+# ================= HEADERS =================
+HEADERS = [
+    "Lead ID",
+    "Assigned Date",
+    "Assigned To",
+    "Date",
+    "City",
+    "Phone",
+    "Name",
+    "Treatment",
+    "Update Date",
+    "Source",
+    "Stage",
+    "Keyword",
+    "Last Comment",
+    "Next Call-back Date",
+    "Last Sync Time"
+]
+
+# ================= READ EXISTING DATA =================
 existing = sheet.get_all_values()
+lead_map = {}   # lead_id -> (row_index, update_date)
 
-if not existing:
-    sheet.append_row(HEADERS)
-    lead_row_map = {}
+if existing:
+    header = existing[0]
+    id_idx = header.index("Lead ID")
+    upd_idx = header.index("Update Date")
+
+    for i, row in enumerate(existing[1:], start=2):
+        if len(row) > upd_idx:
+            lead_map[row[id_idx]] = (i, row[upd_idx])
 else:
-    lead_row_map = {
-        row[0]: idx + 2
-        for idx, row in enumerate(existing[1:])
-        if row and row[0]
-    }
+    sheet.append_row(HEADERS)
 
-print("🚀 Smart Sync Started")
-
-def safe(v):
-    if v is None:
-        return ""
-    if isinstance(v, (dict, list)):
-        return json.dumps(v, ensure_ascii=False)
-    return str(v)
-
-new_rows = []
-update_map = {}
-
+sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 page = 0
+total_updated = 0
+total_new = 0
 
 # ================= MAIN LOOP =================
 while page < MAX_PAGES:
+    offset = page * PAGE_LIMIT
+
     payload = {
         "token": CRM_API_TOKEN,
+        "lead_date_after": lead_date_after,
+        "lead_date_before": lead_date_before,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": page * PAGE_LIMIT,
-        "stage_id": "15"
+        "lead_offset": offset
     }
 
-    res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
-    res.raise_for_status()
+    print(f"➡️ Page {page+1}")
 
-    leads = res.json().get("lead_data", [])
-    if not leads:
+    response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+
+    data = response.json().get("lead_data", [])
+    print("API returned:", len(data))
+
+    if not data:
         break
 
-    for item in leads:
-        lead_id = safe(item.get("lead_id"))
-        if not lead_id:
-            continue
+    new_rows = []
 
-        created_raw = item.get("lead_created_at")
-        if not created_raw:
-            continue
+    for item in data:
+        lead_id = str(item.get("lead_id") or item.get("id"))
+        update_date = item.get("updated_at", "")
 
-        try:
-            created_dt = datetime.strptime(created_raw[:10], "%Y-%m-%d")
-        except:
-            continue
-
-        # ❌ HARD BLOCK FUTURE YEAR (CRM BUG FIX)
-        if created_dt.year > CURRENT_YEAR:
-            continue
-
-        # ❌ START DATE FILTER
-        if created_dt < START_DATE:
-            continue
-
-        row = [
+        row_data = [
             lead_id,
-            safe(item.get("lead_name")),
-            safe(item.get("lead_phone")),
-            safe(item.get("lead_email")),
-            safe(item.get("lead_source")),
-            safe(item.get("lead_stage")),
-            safe(item.get("treatment")),
-            safe(item.get("lead_created_at")),
-            safe(item.get("lead_updated_at")),
-            safe(item.get("nextcallback_at")),
-            safe(item.get("comments")),
-            safe(item.get("statuslog")),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            item.get("assigned_date", ""),
+            item.get("assigned_to", ""),
+            item.get("lead_date", ""),
+            item.get("city", ""),
+            item.get("phone", ""),
+            item.get("name", ""),
+            item.get("treatment", ""),
+            update_date,
+            item.get("source", ""),
+            item.get("stage", ""),
+            item.get("keyword", ""),
+            item.get("last_comment", ""),
+            item.get("next_callback_date", ""),
+            sync_time
         ]
 
-        if lead_id in lead_row_map:
-            update_map[lead_row_map[lead_id]] = row
+        # 🧠 SMART LOGIC
+        if lead_id in lead_map:
+            row_num, old_update = lead_map[lead_id]
+            if old_update != update_date:
+                sheet.update(f"A{row_num}:O{row_num}", [row_data])
+                total_updated += 1
         else:
-            new_rows.append(row)
+            new_rows.append(row_data)
+            total_new += 1
+
+    if new_rows:
+        sheet.append_rows(new_rows, value_input_option="RAW")
 
     page += 1
     time.sleep(1)
 
-# ================= WRITE TO SHEET =================
-
-# ✅ APPEND NEW LEADS
-if new_rows:
-    sheet.append_rows(new_rows, value_input_option="RAW")
-
-# ✅ BULK UPDATE EXISTING LEADS
-if update_map:
-    min_row = min(update_map.keys())
-    max_row = max(update_map.keys())
-
-    bulk_data = []
-    for r in range(min_row, max_row + 1):
-        bulk_data.append(update_map.get(r, [""] * len(HEADERS)))
-
-    sheet.update(
-        range_name=f"A{min_row}:M{max_row}",
-        values=bulk_data
-    )
-
-print("✅ SYNC COMPLETE")
-print(f"🆕 New leads added: {len(new_rows)}")
-print(f"🔁 Leads updated: {len(update_map)}")
+print("🎉 DONE")
+print("🆕 New leads added:", total_new)
+print("♻️ Leads updated   :", total_updated)
+print("🕒 Last Sync Time :", sync_time)
