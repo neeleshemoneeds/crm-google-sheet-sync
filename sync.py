@@ -12,21 +12,18 @@ SHEET_TAB = "Leads"
 
 PAGE_LIMIT = 200
 MAX_PAGES = 100
-REQUEST_TIMEOUT = 60
+REQUEST_TIMEOUT = 90
 
 START_DATE = "2026-01-01"
 
-STAGE_IDS = [
-    "1","2","15","18","19","20","21","22","24","25","29","30","32","33","34",
-    "35","36","37","38","39","40","41","42","43","44","46","47","48","49","50"
-]
+STAGE_ID = "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100"
 
 # ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
 SHEET_ID = os.environ["SHEET_ID"]
 SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
 
-# ================= SHEET AUTH =================
+# ================= GOOGLE SHEET =================
 creds = Credentials.from_service_account_info(
     SERVICE_ACCOUNT_JSON,
     scopes=[
@@ -40,11 +37,13 @@ sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 print("🚀 CRM → Google Sheet Sync Started")
 
-# ================= COLUMN MAPPING (IMPORTANT) =================
+# ================= HEADER MAP =================
+HEADERS = sheet.row_values(1)
+
 FIELD_MAP = {
     "lead_id": ["lead_id", "id"],
     "lead_name": ["name"],
-    "lead_phone": ["phone", "mobile"],
+    "lead_phone": ["phone"],
     "lead_email": ["email"],
     "lead_source": ["source"],
     "lead_stage": ["stage_name", "stage_id"],
@@ -55,78 +54,57 @@ FIELD_MAP = {
     "last_updated": ["updated_at"]
 }
 
-# ================= READ HEADERS =================
-headers = sheet.row_values(1)
-if not headers:
-    raise Exception("❌ Sheet headers missing")
-
-lead_id_col = headers.index("lead_id")
-
-existing_rows = sheet.get_all_values()[1:]
 existing_ids = set()
+rows = sheet.get_all_values()[1:]
+lead_id_index = HEADERS.index("lead_id")
 
-for row in existing_rows:
-    if len(row) > lead_id_col and row[lead_id_col]:
-        existing_ids.add(row[lead_id_col])
+for r in rows:
+    if len(r) > lead_id_index and r[lead_id_index]:
+        existing_ids.add(r[lead_id_index])
 
-crm_ids = set()
 new_rows = []
 
-# ================= DATE RANGE =================
-lead_date_after = START_DATE
-lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+page = 0
+while page < MAX_PAGES:
+    payload = {
+        "token": CRM_API_TOKEN,
+        "stage_id": STAGE_ID,
+        "lead_limit": PAGE_LIMIT,
+        "lead_offset": page * PAGE_LIMIT,
+        "lead_date_after": START_DATE,
+        "lead_date_before": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-# ================= MAIN FETCH =================
-for stage_id in STAGE_IDS:
-    print(f"📥 Fetching stage_id = {stage_id}")
-    page = 0
+    res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+    res.raise_for_status()
 
-    while page < MAX_PAGES:
-        payload = {
-            "token": CRM_API_TOKEN,
-            "stage_id": stage_id,
-            "lead_limit": PAGE_LIMIT,
-            "lead_offset": page * PAGE_LIMIT,
-            "lead_date_after": lead_date_after,
-            "lead_date_before": lead_date_before
-        }
+    data = res.json().get("lead_data", [])
+    if not data:
+        break
 
-        res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
-        res.raise_for_status()
+    for item in data:
+        lead_id = str(item.get("lead_id") or item.get("id"))
+        if not lead_id or lead_id in existing_ids:
+            continue
 
-        data = res.json().get("lead_data", [])
-        if not data:
-            break
+        row = []
+        for h in HEADERS:
+            val = ""
+            for api_key in FIELD_MAP.get(h, []):
+                if api_key in item and item[api_key] not in (None, ""):
+                    val = item[api_key]
+                    break
 
-        for item in data:
-            lead_id = str(item.get("lead_id") or item.get("id"))
-            if not lead_id:
-                continue
+            if isinstance(val, (dict, list)):
+                val = json.dumps(val, ensure_ascii=False)
 
-            crm_ids.add(lead_id)
+            row.append(val)
 
-            if lead_id in existing_ids:
-                continue
+        new_rows.append(row)
 
-            row = []
-            for h in headers:
-                value = ""
-                for api_key in FIELD_MAP.get(h, []):
-                    if api_key in item and item[api_key] not in (None, ""):
-                        value = item[api_key]
-                        break
+    page += 1
+    time.sleep(0.5)
 
-                if isinstance(value, (dict, list)):
-                    value = json.dumps(value, ensure_ascii=False)
-
-                row.append(value)
-
-            new_rows.append(row)
-
-        page += 1
-        time.sleep(0.5)
-
-# ================= APPEND =================
 if new_rows:
     sheet.append_rows(new_rows, value_input_option="RAW")
 
