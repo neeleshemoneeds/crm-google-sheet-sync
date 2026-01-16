@@ -1,3 +1,4 @@
+## Curent runing code Start date to till date 
 import os
 import json
 import requests
@@ -41,24 +42,23 @@ lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # ============ EXISTING DATA ============
 existing_data = sheet.get_all_records()
-
 existing_leads = {}
 existing_status = {}
 existing_stage = {}
 
 for idx, row in enumerate(existing_data, start=2):
-    lid = str(row.get("lead_id") or row.get("id") or "")
+    lid = row.get("lead_id") or row.get("id")
     if lid:
-        existing_leads[lid] = idx
-        existing_status[lid] = row.get("lead_status", "")
-        existing_stage[lid] = str(row.get("stage_id", ""))
+        existing_leads[str(lid)] = idx
+        existing_status[str(lid)] = row.get("lead_status", "")
+        existing_stage[str(lid)] = str(row.get("stage_id", ""))
 
 headers = sheet.row_values(1)
+header_index = {h: i + 1 for i, h in enumerate(headers)}
 
-STATUS_COL = headers.index("lead_status") + 1
-STAGE_COL = headers.index("stage_id") + 1
-LAST_UPDATED_COL = headers.index("last_updated") + 1
-STATUS_LOG_COL = headers.index("status_log") + 1
+STATUS_COL = header_index.get("lead_status")
+STAGE_COL = header_index.get("stage_id")
+LAST_UPDATED_COL = header_index.get("last_updated")
 
 print("🚀 Sync started")
 print("From:", lead_date_after, "To:", lead_date_before)
@@ -75,7 +75,8 @@ while page < MAX_PAGES:
         "lead_date_after": lead_date_after,
         "lead_date_before": lead_date_before,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": offset
+        "lead_offset": offset,
+        "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -84,7 +85,6 @@ while page < MAX_PAGES:
             response.raise_for_status()
             break
         except requests.exceptions.ReadTimeout:
-            print(f"⏳ Timeout page {page+1}, retry {attempt}/{MAX_RETRIES}")
             if attempt == MAX_RETRIES:
                 raise
             time.sleep(5)
@@ -96,65 +96,50 @@ while page < MAX_PAGES:
     new_rows = []
     updates = []
 
+    now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     for item in data:
-        lead_id = str(item.get("lead_id") or item.get("id") or "")
+        lead_id = str(item.get("lead_id") or item.get("id"))
         if not lead_id:
             continue
 
         lead_status = item.get("lead_status", "")
         stage_id = str(item.get("stage_id", ""))
-        now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # ===== EXISTING LEAD =====
+        # -------- EXISTING LEAD --------
         if lead_id in existing_leads:
-            row_no = existing_leads[lead_id]
+            row_num = existing_leads[lead_id]
 
-            old_status = existing_status.get(lead_id, "")
-            old_stage = existing_stage.get(lead_id, "")
+            if lead_status != existing_status.get(lead_id) or stage_id != existing_stage.get(lead_id):
+                if STATUS_COL:
+                    updates.append({
+                        "range": gspread.utils.rowcol_to_a1(row_num, STATUS_COL),
+                        "values": [[lead_status]]
+                    })
+                if STAGE_COL:
+                    updates.append({
+                        "range": gspread.utils.rowcol_to_a1(row_num, STAGE_COL),
+                        "values": [[stage_id]]
+                    })
+                if LAST_UPDATED_COL:
+                    updates.append({
+                        "range": gspread.utils.rowcol_to_a1(row_num, LAST_UPDATED_COL),
+                        "values": [[now_time]]
+                    })
 
-            status_changed = lead_status != old_status
-            stage_changed = stage_id != old_stage
-
-            if status_changed:
-                updates.append({
-                    "range": gspread.utils.rowcol_to_a1(row_no, STATUS_COL),
-                    "values": [[lead_status]]
-                })
-                updates.append({
-                    "range": gspread.utils.rowcol_to_a1(row_no, LAST_UPDATED_COL),
-                    "values": [[now_time]]
-                })
-                updates.append({
-                    "range": gspread.utils.rowcol_to_a1(row_no, STATUS_LOG_COL),
-                    "values": [[f"{old_status} → {lead_status}"]]
-                })
                 total_updated += 1
 
-            if stage_changed:
-                updates.append({
-                    "range": gspread.utils.rowcol_to_a1(row_no, STAGE_COL),
-                    "values": [[stage_id]]
-                })
-
-        # ===== NEW LEAD =====
+        # -------- NEW LEAD --------
         else:
-            row = [""] * len(headers)
-            for i, h in enumerate(headers):
-                if h == "lead_id":
-                    row[i] = lead_id
-                elif h == "lead_status":
-                    row[i] = lead_status
-                elif h == "stage_id":
-                    row[i] = stage_id
-                elif h == "last_updated":
-                    row[i] = now_time
-                elif h == "status_log":
-                    row[i] = "NEW"
+            row = []
+            for h in headers:
+                if h == "last_updated":
+                    row.append(now_time)
                 else:
                     v = item.get(h, "")
                     if isinstance(v, (dict, list)):
                         v = json.dumps(v, ensure_ascii=False)
-                    row[i] = v
+                    row.append(v)
 
             new_rows.append(row)
             total_new += 1
@@ -170,4 +155,4 @@ while page < MAX_PAGES:
 
 print("🎉 DONE")
 print("🆕 New Leads:", total_new)
-print("🔁 Status Updated:", total_updated)
+print("🔁 Updated Leads:", total_updated)
