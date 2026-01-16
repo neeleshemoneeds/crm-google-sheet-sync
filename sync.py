@@ -1,30 +1,32 @@
 import os
 import json
+import time
 import requests
 import gspread
-from google.oauth2.service_account import Credentials
 from datetime import datetime
-import time
+from google.oauth2.service_account import Credentials
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
-REQUEST_TIMEOUT = 60
 PAGE_LIMIT = 200
-MAX_PAGES = 50
+MAX_PAGES = 100
+REQUEST_TIMEOUT = 60
 
-MANUAL_START_DATE = "2026-01-01"
+START_DATE = "2026-01-01"
 
-# ⚠️ REQUIRED BY CRM (DO NOT REMOVE)
-STAGE_ID = "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
+STAGE_IDS = [
+    "1","2","15","18","19","20","21","22","24","25","29","30","32","33","34",
+    "35","36","37","38","39","40","41","42","43","44","46","47","48","49","50"
+]
 
-# ================ SECRETS =================
+# ================= SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
 SHEET_ID = os.environ["SHEET_ID"]
 SERVICE_ACCOUNT_JSON = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
 
-# =========== GOOGLE SHEET AUTH ============
+# ================= SHEET AUTH =================
 creds = Credentials.from_service_account_info(
     SERVICE_ACCOUNT_JSON,
     scopes=[
@@ -38,92 +40,83 @@ sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 print("🚀 CRM → Google Sheet Sync Started")
 
-# ================= DATE RANGE =================
-lead_date_after = MANUAL_START_DATE
-lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-# ================= READ HEADERS =================
+# ================= HEADERS =================
 headers = sheet.row_values(1)
-header_index = {h: i for i, h in enumerate(headers)}
+if not headers:
+    raise Exception("❌ Sheet me headers nahi hain")
 
-LEAD_ID_COL = header_index.get("lead_id")
+lead_id_col = headers.index("lead_id")
 
 existing_rows = sheet.get_all_values()[1:]
 existing_map = {}
-
 for i, row in enumerate(existing_rows, start=2):
-    if LEAD_ID_COL is not None and len(row) > LEAD_ID_COL:
-        lid = row[LEAD_ID_COL]
-        if lid:
-            existing_map[lid] = i
+    if len(row) > lead_id_col and row[lead_id_col]:
+        existing_map[row[lead_id_col]] = i
 
 crm_ids = set()
-page = 0
-total_new = 0
-total_updated = 0
+new_rows = []
 
-# ================= MAIN LOOP =================
-while page < MAX_PAGES:
-    payload = {
-        "token": CRM_API_TOKEN,
-        "stage_id": STAGE_ID,          # 🔥 REQUIRED
-        "lead_limit": PAGE_LIMIT,
-        "lead_offset": page * PAGE_LIMIT,
-        "lead_date_after": lead_date_after,
-        "lead_date_before": lead_date_before
-    }
+# ================= DATE RANGE =================
+lead_date_after = START_DATE
+lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
-    res.raise_for_status()
+# ================= MAIN FETCH =================
+for stage_id in STAGE_IDS:
+    print(f"📥 Fetching stage_id = {stage_id}")
+    page = 0
 
-    data = res.json().get("lead_data", [])
-    if not data:
-        break
+    while page < MAX_PAGES:
+        payload = {
+            "token": CRM_API_TOKEN,
+            "stage_id": stage_id,
+            "lead_limit": PAGE_LIMIT,
+            "lead_offset": page * PAGE_LIMIT,
+            "lead_date_after": lead_date_after,
+            "lead_date_before": lead_date_before
+        }
 
-    new_rows = []
-    updates = []
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+        res.raise_for_status()
 
-    for item in data:
-        lead_id = str(item.get("lead_id") or item.get("id"))
-        if not lead_id:
-            continue
+        data = res.json().get("lead_data", [])
+        if not data:
+            break
 
-        crm_ids.add(lead_id)
+        for item in data:
+            lead_id = str(item.get("lead_id") or item.get("id"))
+            if not lead_id:
+                continue
 
-        if lead_id in existing_map:
-            total_updated += 1
-            continue
+            crm_ids.add(lead_id)
 
-        row = []
-        for h in headers:
-            if h == "last_updated":
-                row.append(now)
-            else:
+            if lead_id in existing_map:
+                continue  # already exists
+
+            row = []
+            for h in headers:
                 v = item.get(h, "")
                 if isinstance(v, (dict, list)):
                     v = json.dumps(v, ensure_ascii=False)
                 row.append(v)
 
-        new_rows.append(row)
-        total_new += 1
+            new_rows.append(row)
 
-    if new_rows:
-        sheet.append_rows(new_rows, value_input_option="RAW")
+        page += 1
+        time.sleep(0.5)
 
-    page += 1
-    time.sleep(1)
+# ================= APPEND NEW =================
+if new_rows:
+    sheet.append_rows(new_rows, value_input_option="RAW")
 
-# ================= REMOVE DELETED CRM LEADS =================
-to_delete = []
+# ================= REMOVE DELETED =================
+delete_rows = []
 for lid, row_num in existing_map.items():
     if lid not in crm_ids:
-        to_delete.append(row_num)
+        delete_rows.append(row_num)
 
-for r in sorted(to_delete, reverse=True):
+for r in sorted(delete_rows, reverse=True):
     sheet.delete_rows(r)
 
 print("🎉 SYNC COMPLETE")
-print("🆕 New Leads:", total_new)
-print("🔁 Updated Leads:", total_updated)
-print("🧹 Deleted Leads Removed:", len(to_delete))
+print("🆕 New Leads Added:", len(new_rows))
+print("🧹 Deleted Leads Removed:", len(delete_rows))
