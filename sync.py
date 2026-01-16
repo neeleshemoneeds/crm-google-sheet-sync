@@ -3,7 +3,7 @@ import json
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 # ================= CONFIG =================
@@ -12,11 +12,11 @@ SHEET_TAB = "Leads"
 
 REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
-MAX_PAGES = 50
+MAX_PAGES = 50   # safety stop (200 x 50 = 10,000 leads max)
 
-# ================ MANUAL START DATE =================
-# 🔴 YAHAN APNI DATE DAALE (YYYY-MM-DD)
-START_DATE = "2025-12-16"
+# ================ MANUAL DATE RANGE =================
+# 🔴 YAHAN APNI START DATE DAALE (YYYY-MM-DD)
+MANUAL_START_DATE = "2025-12-16"
 
 # ================ SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
@@ -35,55 +35,25 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-print("🚀 Smart Sync started")
+# ⚠️ Har run me sheet fresh hogi
+sheet.clear()
 
-# ================= DATE RANGE =================
-lead_date_after = START_DATE
+# ============ DATE FILTER =================
+lead_date_after = MANUAL_START_DATE
 lead_date_before = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-print("From:", lead_date_after)
-print("To  :", lead_date_before)
-
-# ================= HEADERS =================
-HEADERS = [
-    "Lead ID",
-    "Assigned Date",
-    "Assigned To",
-    "Date",
-    "City",
-    "Phone",
-    "Name",
-    "Treatment",
-    "Update Date",
-    "Source",
-    "Stage",
-    "Keyword",
-    "Last Comment",
-    "Next Call-back Date",
-    "Last Sync Time"
-]
-
-# ================= READ EXISTING DATA =================
-existing = sheet.get_all_values()
-lead_map = {}   # lead_id -> (row_index, update_date)
-
-if existing:
-    header = existing[0]
-    id_idx = header.index("Lead ID")
-    upd_idx = header.index("Update Date")
-
-    for i, row in enumerate(existing[1:], start=2):
-        if len(row) > upd_idx:
-            lead_map[row[id_idx]] = (i, row[upd_idx])
-else:
-    sheet.append_row(HEADERS)
-
-sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ============ INTERNAL STATE ==============
+seen_ids = set()
+headers_written = False
+headers = []
+total = 0
 page = 0
-total_updated = 0
-total_new = 0
 
-# ================= MAIN LOOP =================
+print("🚀 Sync started")
+print("Lead date after:", lead_date_after)
+print("Lead date before:", lead_date_before)
+
+# ============ MAIN LOOP ===================
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
 
@@ -92,61 +62,58 @@ while page < MAX_PAGES:
         "lead_date_after": lead_date_after,
         "lead_date_before": lead_date_before,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": offset
+        "lead_offset": offset,   # ✅ pagination
+        "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
-    print(f"➡️ Page {page+1}")
+    print(f"➡️ Page {page+1} | offset {offset}")
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
 
     data = response.json().get("lead_data", [])
-    print("API returned:", len(data))
+    print("API returned leads:", len(data))
 
     if not data:
+        print("❌ No more data from API. Stopping.")
         break
 
     new_rows = []
 
     for item in data:
-        lead_id = str(item.get("lead_id") or item.get("id"))
-        update_date = item.get("updated_at", "")
+        lead_id = item.get("lead_id") or item.get("id")
+        if not lead_id:
+            continue
 
-        row_data = [
-            lead_id,
-            item.get("assigned_date", ""),
-            item.get("assigned_to", ""),
-            item.get("lead_date", ""),
-            item.get("city", ""),
-            item.get("phone", ""),
-            item.get("name", ""),
-            item.get("treatment", ""),
-            update_date,
-            item.get("source", ""),
-            item.get("stage", ""),
-            item.get("keyword", ""),
-            item.get("last_comment", ""),
-            item.get("next_callback_date", ""),
-            sync_time
-        ]
+        if lead_id in seen_ids:
+            continue
 
-        # 🧠 SMART LOGIC
-        if lead_id in lead_map:
-            row_num, old_update = lead_map[lead_id]
-            if old_update != update_date:
-                sheet.update(f"A{row_num}:O{row_num}", [row_data])
-                total_updated += 1
-        else:
-            new_rows.append(row_data)
-            total_new += 1
+        seen_ids.add(lead_id)
 
-    if new_rows:
-        sheet.append_rows(new_rows, value_input_option="RAW")
+        if not headers_written:
+            headers = list(item.keys())
+            sheet.append_row(headers)
+            headers_written = True
+
+        row = []
+        for h in headers:
+            v = item.get(h, "")
+            if isinstance(v, (dict, list)):
+                v = json.dumps(v, ensure_ascii=False)
+            row.append(v)
+
+        new_rows.append(row)
+
+    if not new_rows:
+        print("⚠️ No new unique leads found. Stopping.")
+        break
+
+    sheet.append_rows(new_rows, value_input_option="RAW")
+    total += len(new_rows)
+
+    print(f"✅ Added {len(new_rows)} leads | Total: {total}")
 
     page += 1
-    time.sleep(1)
+    time.sleep(1)   # CRM safe delay
 
-print("🎉 DONE")
-print("🆕 New leads added:", total_new)
-print("♻️ Leads updated   :", total_updated)
-print("🕒 Last Sync Time :", sync_time)
+print(f"🎉 DONE. Total unique leads synced: {total}")
