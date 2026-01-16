@@ -4,52 +4,45 @@ from pprint import pprint
 
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 
-CRM_API_TOKEN = os.environ.get("CRM_API_TOKEN")
+TOKEN = os.environ.get("CRM_API_TOKEN")
 
-if not CRM_API_TOKEN:
-    raise Exception("❌ CRM_API_TOKEN env missing")
+if not TOKEN:
+    raise Exception("❌ CRM_API_TOKEN missing")
 
-# ✅ Headers (IMPORTANT)
+payload = {
+    "token": TOKEN,
+    "limit": 1,
+    "offset": 0
+}
+
 headers = {
-    "Authorization": f"Bearer {CRM_API_TOKEN}",
+    "Content-Type": "application/x-www-form-urlencoded",
     "Accept": "application/json"
 }
 
-payload = {
-    "lead_limit": 1,
-    "lead_offset": 0
-}
-
-print("🔍 Fetching sample lead with HEADER auth...")
+print("🔍 Fetching sample lead (FINAL FORMAT)...")
 
 response = requests.post(
     API_URL,
-    headers=headers,
     data=payload,
+    headers=headers,
     timeout=60
 )
 
-print("Status code:", response.status_code)
+print("Status:", response.status_code)
+print("Raw response:\n", response.text)
 
-if response.status_code != 200:
-    print("❌ RAW RESPONSE:")
-    print(response.text)
-    raise Exception("API failed")
+response.raise_for_status()
 
 data = response.json()
 
-print("\n📦 FULL API RESPONSE:\n")
-pprint(data)
-
-lead_data = data.get("lead_data", [])
+lead_data = data.get("lead_data")
 
 if not lead_data:
-    print("❌ No lead_data found")
-    exit()
-
-print("\n🧩 SAMPLE LEAD KE ACTUAL KEYS:\n")
+    raise Exception("❌ lead_data missing in response")
 
 sample = lead_data[0]
 
-for k, v in sample.items():
-    print(f"{k:25} -> {type(v).__name__}")
+print("\n✅ ACTUAL KEYS FROM CRM:\n")
+for k in sample.keys():
+    print("-", k)
