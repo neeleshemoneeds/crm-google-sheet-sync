@@ -14,7 +14,7 @@ PAGE_LIMIT = 200
 MAX_PAGES = 50
 REQUEST_TIMEOUT = 60
 
-# 🔹 CHANGE START DATE HERE
+# 🔥 CHANGE START DATE HERE
 START_DATE = "2024-01-01"   # YYYY-MM-DD
 
 # ================= SECRETS =================
@@ -29,7 +29,7 @@ HEADERS = [
     "Comments", "Status Log", "Last Sync Time"
 ]
 
-# =========== GOOGLE SHEET AUTH ============
+# =========== GOOGLE AUTH ============
 creds = Credentials.from_service_account_info(
     SERVICE_ACCOUNT_JSON,
     scopes=[
@@ -41,7 +41,7 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# =========== INIT SHEET ===================
+# =========== INIT SHEET ============
 existing = sheet.get_all_values()
 
 if not existing:
@@ -56,7 +56,6 @@ else:
 
 print("🚀 Smart Sync Started")
 
-# ============ SAFE VALUE ==================
 def safe(v):
     if v is None:
         return ""
@@ -64,35 +63,31 @@ def safe(v):
         return json.dumps(v, ensure_ascii=False)
     return str(v)
 
-# ============ DATE RANGE ==================
 today = datetime.now().strftime("%Y-%m-%d")
 
-# ============ MAIN LOOP ===================
 new_rows = []
-update_rows = []
+update_map = {}  # row_no -> row_data
 
 page = 0
 
 while page < MAX_PAGES:
-    offset = page * PAGE_LIMIT
-
     payload = {
         "token": CRM_API_TOKEN,
         "lead_limit": PAGE_LIMIT,
-        "lead_offset": offset,
+        "lead_offset": page * PAGE_LIMIT,
         "stage_id": "15",
         "from_date": START_DATE,
         "to_date": today
     }
 
-    response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
+    res = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
+    res.raise_for_status()
 
-    data = response.json().get("lead_data", [])
-    if not data:
+    leads = res.json().get("lead_data", [])
+    if not leads:
         break
 
-    for item in data:
+    for item in leads:
         lead_id = safe(item.get("lead_id"))
         if not lead_id:
             continue
@@ -114,26 +109,33 @@ while page < MAX_PAGES:
         ]
 
         if lead_id in lead_row_map:
-            update_rows.append((lead_row_map[lead_id], row))
+            update_map[lead_row_map[lead_id]] = row
         else:
             new_rows.append(row)
 
     page += 1
     time.sleep(1)
 
-# ============ BULK WRITE ==================
-# ✅ NEW LEADS (ONE CALL)
+# ================= WRITE TO SHEET =================
+
+# ✅ APPEND NEW LEADS (ONE API CALL)
 if new_rows:
     sheet.append_rows(new_rows, value_input_option="RAW")
 
-# ✅ UPDATES (LIMITED CALLS)
-for row_no, row_data in update_rows:
+# ✅ BULK UPDATE EXISTING LEADS (ONE API CALL)
+if update_map:
+    min_row = min(update_map.keys())
+    max_row = max(update_map.keys())
+
+    bulk_data = []
+    for r in range(min_row, max_row + 1):
+        bulk_data.append(update_map.get(r, [""] * len(HEADERS)))
+
     sheet.update(
-        range_name=f"A{row_no}:M{row_no}",
-        values=[row_data]
+        range_name=f"A{min_row}:M{max_row}",
+        values=bulk_data
     )
-    time.sleep(0.3)   # quota safe
 
 print("✅ SYNC COMPLETE")
 print(f"🆕 New leads added: {len(new_rows)}")
-print(f"🔁 Leads updated: {len(update_rows)}")
+print(f"🔁 Leads updated: {len(update_map)}")
