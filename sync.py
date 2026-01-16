@@ -48,11 +48,14 @@ for idx, row in enumerate(existing_data, start=2):
         existing_leads[str(lead_id)] = idx
 
 headers = sheet.row_values(1)
+if not headers:
+    headers = []
+
 status_col_index = headers.index("lead_status") + 1 if "lead_status" in headers else None
 
+page = 0
 total_new = 0
 total_updated = 0
-page = 0
 
 print("🚀 Sync started")
 print("From:", lead_date_after, "To:", lead_date_before)
@@ -77,18 +80,25 @@ while page < MAX_PAGES:
     if not data:
         break
 
+    new_rows = []
+    status_updates = []
+
     for item in data:
         lead_id = str(item.get("lead_id") or item.get("id"))
         if not lead_id:
             continue
 
-        # ---------- UPDATE STATUS ----------
+        # -------- EXISTING LEAD → STATUS UPDATE --------
         if lead_id in existing_leads and status_col_index:
             row_num = existing_leads[lead_id]
-            sheet.update_cell(row_num, status_col_index, item.get("lead_status", ""))
+            status_updates.append({
+                "range": gspread.utils.rowcol_to_a1(row_num, status_col_index),
+                "values": [[item.get("lead_status", "")]]
+            })
             total_updated += 1
+
+        # -------- NEW LEAD --------
         else:
-            # ---------- NEW LEAD ----------
             if not headers:
                 headers = list(item.keys())
                 sheet.append_row(headers)
@@ -100,8 +110,15 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row.append(v)
 
-            sheet.append_row(row, value_input_option="RAW")
+            new_rows.append(row)
             total_new += 1
+
+    # 🔥 BULK WRITE (quota safe)
+    if new_rows:
+        sheet.append_rows(new_rows, value_input_option="RAW")
+
+    if status_updates:
+        sheet.batch_update(status_updates)
 
     page += 1
     time.sleep(1)
