@@ -1,6 +1,5 @@
 import os
 import requests
-from pprint import pprint
 
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 
@@ -11,6 +10,7 @@ if not TOKEN:
 
 payload = {
     "token": TOKEN,
+    "stage_id": 1,      # 🔥 REQUIRED
     "limit": 1,
     "offset": 0
 }
@@ -20,7 +20,7 @@ headers = {
     "Accept": "application/json"
 }
 
-print("🔍 Fetching sample lead (FINAL FORMAT)...")
+print("🔍 Fetching sample lead (WITH stage_id)...")
 
 response = requests.post(
     API_URL,
@@ -39,7 +39,7 @@ data = response.json()
 lead_data = data.get("lead_data")
 
 if not lead_data:
-    raise Exception("❌ lead_data missing in response")
+    raise Exception("❌ lead_data missing")
 
 sample = lead_data[0]
 
