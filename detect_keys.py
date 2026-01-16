@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import datetime
 
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 TOKEN = os.environ.get("CRM_API_TOKEN")
@@ -14,12 +15,17 @@ headers = {
 
 FOUND = False
 
-for stage_id in range(1, 15):  # try stages 1–14
+FROM_DATE = "2021-01-01"
+TO_DATE = datetime.now().strftime("%Y-%m-%d")
+
+for stage_id in range(1, 25):
     print(f"\n🔍 Trying stage_id = {stage_id}")
 
     payload = {
         "token": TOKEN,
         "stage_id": stage_id,
+        "from_date": FROM_DATE,
+        "to_date": TO_DATE,
         "limit": 1,
         "offset": 0
     }
@@ -47,4 +53,4 @@ for stage_id in range(1, 15):  # try stages 1–14
         print("❌ No leads in this stage")
 
 if not FOUND:
-    raise Exception("❌ No leads found in any stage")
+    raise Exception("❌ No leads found (date-filter required)")
