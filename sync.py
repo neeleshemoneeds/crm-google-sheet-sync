@@ -16,7 +16,7 @@ MAX_PAGES = 50
 MAX_RETRIES = 3
 
 # ============ MANUAL DATE RANGE ============
-MANUAL_START_DATE = "2025-01-01"
+MANUAL_START_DATE = "2026-01-01"
 
 # ================ SECRETS =================
 CRM_API_TOKEN = os.environ["CRM_API_TOKEN"]
