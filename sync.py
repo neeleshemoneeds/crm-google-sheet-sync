@@ -100,12 +100,16 @@ while page < MAX_PAGES:
         except:
             continue
 
-        # ✅ DATE FILTER (FINAL FIX)
-        if created_dt < START_DATE:
-            continue
+        # 🚫 HARD BLOCK FUTURE YEAR (CRM BUG FIX)
+CURRENT_YEAR = datetime.now().year
 
-        if created_dt > TODAY_DATE:
-            continue   # ❌ future dates blocked
+if created_dt.year > CURRENT_YEAR:
+    continue   # ❌ skip 2026, 2027 etc
+
+# ✅ START DATE FILTER
+if created_dt < START_DATE:
+    continue
+
 
         row = [
             lead_id,
