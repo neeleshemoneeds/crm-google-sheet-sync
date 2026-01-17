@@ -27,7 +27,6 @@ creds = Credentials.from_service_account_info(
         "https://www.googleapis.com/auth/drive"
     ]
 )
-
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
@@ -55,8 +54,8 @@ existing_map = {}
 
 for idx, row in enumerate(existing_rows, start=2):
     lid = str(row.get("lead_id", "")).strip()
-    if lid and lid not in existing_map:
-        existing_map[lid] = idx   # ✅ dedupe
+    if lid:
+        existing_map[lid] = idx
 
 print("🚀 CRM → Google Sheet Sync Started")
 
@@ -64,7 +63,7 @@ page = 0
 new_count = 0
 update_count = 0
 
-# =========== MAIN LOOP =====================
+# =========== MAIN LOOP (MANDATORY) =========
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
 
@@ -83,14 +82,18 @@ while page < MAX_PAGES:
         break
 
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 👉 PAGE LEVEL DEDUP (latest wins)
+    page_unique = {}
+    for item in data:
+        lid = str(item.get("lead_id") or item.get("id"))
+        if lid:
+            page_unique[lid] = item
+
     new_rows = []
     updates = []
 
-    for item in data:
-        lead_id = str(item.get("lead_id") or item.get("id"))
-        if not lead_id:
-            continue
-
+    for lead_id, item in page_unique.items():
         row_data = []
         for h in headers:
             if h == "last_updated":
@@ -105,24 +108,31 @@ while page < MAX_PAGES:
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
 
-            # ✅ FIX: ensure row exists
-            if row_num > sheet.row_count:
-                sheet.add_rows(row_num - sheet.row_count)
+            # ✅ GRID SAFETY CHECK
+            if row_num <= sheet.row_count:
+                updates.append({
+                    "range": f"A{row_num}:K{row_num}",
+                    "values": [row_data]
+                })
+                update_count += 1
 
-            updates.append({
-                "range": f"A{row_num}:K{row_num}",
-                "values": [row_data]
-            })
-            update_count += 1
-
-        # 🆕 NEW LEAD
+        # 🆕 NEW LEAD (APPEND BOTTOM)
         else:
             new_rows.append(row_data)
-            existing_map[lead_id] = sheet.row_count + len(new_rows)
             new_count += 1
 
+    # 🔽 EXPAND SHEET IF REQUIRED
     if new_rows:
+        needed = len(new_rows)
+        if sheet.row_count < sheet.row_count + needed:
+            sheet.add_rows(needed + 5)
+
         sheet.append_rows(new_rows, value_input_option="RAW")
+
+        # update map for future pages
+        start_row = sheet.row_count - len(new_rows) + 1
+        for i, r in enumerate(new_rows):
+            existing_map[str(r[0])] = start_row + i
 
     if updates:
         sheet.batch_update(updates)
