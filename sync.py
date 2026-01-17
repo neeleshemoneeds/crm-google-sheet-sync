@@ -49,8 +49,6 @@ if not headers:
     ]
     sheet.append_row(headers)
 
-header_index = {h: i + 1 for i, h in enumerate(headers)}
-
 # =========== EXISTING DATA =================
 existing_rows = sheet.get_all_records(expected_headers=headers)
 existing_map = {}
@@ -58,7 +56,7 @@ existing_map = {}
 for idx, row in enumerate(existing_rows, start=2):
     lid = str(row.get("lead_id", "")).strip()
     if lid and lid not in existing_map:
-        existing_map[lid] = idx   # ✅ first occurrence only (dedupe)
+        existing_map[lid] = idx   # ✅ dedupe
 
 print("🚀 CRM → Google Sheet Sync Started")
 
@@ -103,13 +101,13 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row_data.append(v)
 
-        # 🔁 UPDATE EXISTING (SAFE)
+        # 🔁 UPDATE EXISTING
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
 
-            # ✅ SAFETY GUARD (NO INVALID ROW)
-            if row_num < 2:
-                continue
+            # ✅ FIX: ensure row exists
+            if row_num > sheet.row_count:
+                sheet.add_rows(row_num - sheet.row_count)
 
             updates.append({
                 "range": f"A{row_num}:K{row_num}",
@@ -117,7 +115,7 @@ while page < MAX_PAGES:
             })
             update_count += 1
 
-        # 🆕 NEW LEAD (APPEND BOTTOM)
+        # 🆕 NEW LEAD
         else:
             new_rows.append(row_data)
             existing_map[lead_id] = sheet.row_count + len(new_rows)
