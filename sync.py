@@ -1,10 +1,10 @@
 import os
 import json
+import time
 import requests
 import gspread
-from google.oauth2.service_account import Credentials
 from datetime import datetime
-import time
+from google.oauth2.service_account import Credentials
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
@@ -14,7 +14,7 @@ REQUEST_TIMEOUT = 90
 PAGE_LIMIT = 200
 MAX_PAGES = 50
 
-# ✅ FIXED START DATE (TILL TODAY)
+# ✅ START DATE (TILL TODAY)
 LEAD_DATE_AFTER = "2025-11-01"
 
 # ================ SECRETS =================
@@ -30,6 +30,7 @@ creds = Credentials.from_service_account_info(
         "https://www.googleapis.com/auth/drive"
     ]
 )
+
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
@@ -66,7 +67,7 @@ page = 0
 new_count = 0
 update_count = 0
 
-# =========== MAIN LOOP (MANDATORY) =========
+# =========== MAIN LOOP =====================
 while page < MAX_PAGES:
     offset = page * PAGE_LIMIT
 
@@ -74,10 +75,7 @@ while page < MAX_PAGES:
         "token": CRM_API_TOKEN,
         "lead_limit": PAGE_LIMIT,
         "lead_offset": offset,
-
-        # ✅ START DATE ONLY (TILL DATE AUTO)
         "lead_date_after": LEAD_DATE_AFTER,
-
         "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
     }
 
@@ -90,10 +88,10 @@ while page < MAX_PAGES:
 
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ✅ PAGE LEVEL DEDUP (latest wins)
+    # ===== PAGE LEVEL DEDUP (latest wins) ====
     dedup = {}
     for item in data:
-        lid = str(item.get("lead_id") or item.get("id"))
+        lid = str(item.get("lead_id") or item.get("id", "")).strip()
         if lid:
             dedup[lid] = item
 
@@ -127,23 +125,26 @@ while page < MAX_PAGES:
 
     # ========= SAFE APPEND =========
     if new_rows:
-    # Ensure enough rows
-    if sheet.row_count < sheet.row_count + len(new_rows):
         sheet.add_rows(len(new_rows) + 10)
 
-    # Actual last row before append
-    last_row_before = len(sheet.get_all_values())
+        last_row_before = len(sheet.get_all_values())
 
-    sheet.append_rows(new_rows, value_input_option="RAW")
+        sheet.append_rows(new_rows, value_input_option="RAW")
 
-    # Correct row mapping
-    for i, r in enumerate(new_rows):
-        existing_map[str(r[0])] = last_row_before + 1 + i
-        new_count += 1
+        for i, r in enumerate(new_rows):
+            existing_map[str(r[0])] = last_row_before + 1 + i
+            new_count += 1
 
-
+    # ========= SAFE UPDATE =========
     if updates:
-        sheet.batch_update(updates)
+        safe_updates = []
+        for u in updates:
+            row_num = int(u["range"].split("A")[1].split(":")[0])
+            if row_num <= sheet.row_count:
+                safe_updates.append(u)
+
+        if safe_updates:
+            sheet.batch_update(safe_updates)
 
     page += 1
     time.sleep(1)
