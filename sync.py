@@ -8,7 +8,7 @@ import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
-SHEET_TAB = "CRM_Leads"
+SHEET_TAB = "Leads"
 
 REQUEST_TIMEOUT = 30
 PAGE_LIMIT = 200
