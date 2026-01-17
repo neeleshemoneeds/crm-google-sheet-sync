@@ -4,6 +4,7 @@ import requests
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
@@ -30,7 +31,7 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# =========== ENSURE HEADERS ===============
+# =========== HEADERS ======================
 HEADERS = [
     "lead_id",
     "lead_name",
@@ -45,90 +46,88 @@ HEADERS = [
     "last_updated"
 ]
 
-existing_headers = sheet.row_values(1)
-if existing_headers != HEADERS:
+if sheet.row_values(1) != HEADERS:
     sheet.clear()
     sheet.append_row(HEADERS)
 
-# =========== READ EXISTING DATA ===========
-existing_rows = sheet.get_all_values()[1:]  # skip header
+# =========== EXISTING DATA =================
+rows = sheet.get_all_values()[1:]
+sheet_map = {}
 
-sheet_data = {}
-for idx, row in enumerate(existing_rows, start=2):
-    if len(row) > 0 and row[0]:
-        sheet_data[row[0]] = idx  # lead_id -> row number
+for i, r in enumerate(rows, start=2):
+    if r and r[0]:
+        sheet_map[r[0]] = i
 
-# =========== FETCH CRM DATA ===============
 print("🚀 CRM → Google Sheet Sync Started")
 
-headers = {
-    "Authorization": f"Bearer {CRM_API_TOKEN}",
-    "Content-Type": "application/json"
-}
-
 crm_leads = {}
-page = 1
+page = 0
 
-while page <= MAX_PAGES:
+while page < MAX_PAGES:
+    offset = page * PAGE_LIMIT
+
     payload = {
-        "page": page,
-        "limit": PAGE_LIMIT
+        "token": CRM_API_TOKEN,
+        "lead_limit": PAGE_LIMIT,
+        "lead_offset": offset
     }
 
-    r = requests.post(API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
+    response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
 
-    data = r.json()
-    leads = data.get("data", [])
+    if response.status_code == 401:
+        raise Exception("❌ CRM TOKEN INVALID OR EXPIRED")
 
-    if not leads:
+    response.raise_for_status()
+
+    data = response.json().get("lead_data", [])
+    if not data:
         break
 
-    for lead in leads:
-        lead_id = str(lead.get("id"))
+    for item in data:
+        lead_id = str(item.get("lead_id") or item.get("id"))
+        if not lead_id:
+            continue
+
         crm_leads[lead_id] = [
             lead_id,
-            lead.get("name", ""),
-            lead.get("phone", ""),
-            lead.get("email", ""),
-            lead.get("source", ""),
-            lead.get("stage", ""),
-            lead.get("treatment", ""),
-            lead.get("created_at", ""),
-            lead.get("next_callback", ""),
-            lead.get("comments", ""),
+            item.get("lead_name", ""),
+            item.get("lead_phone", ""),
+            item.get("lead_email", ""),
+            item.get("lead_source", ""),
+            item.get("lead_stage", ""),
+            item.get("treatment", ""),
+            item.get("lead_created_at", ""),
+            item.get("nextcallback_at", ""),
+            item.get("comments", ""),
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
 
     page += 1
+    time.sleep(1)
 
 print(f"📦 CRM Active Leads: {len(crm_leads)}")
 
-# =========== APPEND / UPDATE ==============
+# =========== INSERT / UPDATE ===============
 new_count = 0
 update_count = 0
 
-for lead_id, row_data in crm_leads.items():
-    if lead_id in sheet_data:
-        sheet.update(f"A{sheet_data[lead_id]}:K{sheet_data[lead_id]}", [row_data])
+for lead_id, row in crm_leads.items():
+    if lead_id in sheet_map:
+        sheet.update(f"A{sheet_map[lead_id]}:K{sheet_map[lead_id]}", [row])
         update_count += 1
     else:
-        sheet.append_row(row_data)
+        sheet.append_row(row)
         new_count += 1
 
-# =========== DELETE REMOVED CRM LEADS ======
+# =========== DELETE REMOVED LEADS ==========
 deleted = 0
-sheet_lead_ids = set(sheet_data.keys())
-crm_lead_ids = set(crm_leads.keys())
+to_delete = sorted(set(sheet_map) - set(crm_leads), reverse=True)
 
-to_delete = sorted(sheet_lead_ids - crm_lead_ids, reverse=True)
-
-for lead_id in to_delete:
-    sheet.delete_rows(sheet_data[lead_id])
+for lid in to_delete:
+    sheet.delete_rows(sheet_map[lid])
     deleted += 1
 
-# =========== SUMMARY ======================
-print("✅ SYNC COMPLETE")
-print(f"🆕 New Leads Added: {new_count}")
-print(f"♻️ Leads Updated: {update_count}")
-print(f"🗑️ Deleted Leads Removed: {deleted}")
+print("✅ SYNC COMPLETED")
+print("🆕 New:", new_count)
+print("♻️ Updated:", update_count)
+print("🗑️ Deleted:", deleted)
