@@ -127,13 +127,20 @@ while page < MAX_PAGES:
 
     # ========= SAFE APPEND =========
     if new_rows:
+    # Ensure enough rows
+    if sheet.row_count < sheet.row_count + len(new_rows):
         sheet.add_rows(len(new_rows) + 10)
-        start_row = sheet.row_count + 1
-        sheet.append_rows(new_rows, value_input_option="RAW")
 
-        for i, r in enumerate(new_rows):
-            existing_map[str(r[0])] = start_row + i
-            new_count += 1
+    # Actual last row before append
+    last_row_before = len(sheet.get_all_values())
+
+    sheet.append_rows(new_rows, value_input_option="RAW")
+
+    # Correct row mapping
+    for i, r in enumerate(new_rows):
+        existing_map[str(r[0])] = last_row_before + 1 + i
+        new_count += 1
+
 
     if updates:
         sheet.batch_update(updates)
