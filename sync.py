@@ -10,7 +10,7 @@ import time
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
 SHEET_TAB = "Leads"
 
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 90
 PAGE_LIMIT = 200
 MAX_PAGES = 50
 
@@ -116,6 +116,8 @@ while page < MAX_PAGES:
         else:
             new_rows.append(row_data)
             new_count += 1
+            existing_map[lead_id] = -1   # mark as already present
+
 
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
