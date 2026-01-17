@@ -52,6 +52,9 @@ if not headers:
     ]
     sheet.append_row(headers)
 
+TOTAL_COLS = len(headers)
+END_COL = chr(ord('A') + TOTAL_COLS - 1)
+
 # =========== EXISTING DATA =================
 existing_rows = sheet.get_all_records(expected_headers=headers)
 existing_map = {}
@@ -76,7 +79,7 @@ while page < MAX_PAGES:
         "lead_limit": PAGE_LIMIT,
         "lead_offset": offset,
         "lead_date_after": LEAD_DATE_AFTER,
-        "stage_id": "1,2,15,18,19,20,21,22,24,25,29,30,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133"
+        "stage_id": ",".join(str(i) for i in range(1, 134))
     }
 
     response = requests.post(API_URL, data=payload, timeout=REQUEST_TIMEOUT)
@@ -100,6 +103,7 @@ while page < MAX_PAGES:
 
     for lead_id, item in dedup.items():
         row_data = []
+
         for h in headers:
             if h == "last_updated":
                 row_data.append(now_time)
@@ -109,12 +113,15 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row_data.append(v)
 
+        # ✅ FORCE COLUMN COUNT
+        row_data = row_data[:TOTAL_COLS]
+
         # 🔁 UPDATE
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
             if row_num <= sheet.row_count:
                 updates.append({
-                    "range": f"A{row_num}:K{row_num}",
+                    "range": f"A{row_num}:{END_COL}{row_num}",
                     "values": [row_data]
                 })
                 update_count += 1
