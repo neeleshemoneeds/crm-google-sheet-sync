@@ -57,8 +57,8 @@ existing_map = {}
 
 for idx, row in enumerate(existing_rows, start=2):
     lid = str(row.get("lead_id", "")).strip()
-    if lid:
-        existing_map[lid] = idx
+    if lid and lid not in existing_map:
+        existing_map[lid] = idx   # ✅ first occurrence only (dedupe)
 
 print("🚀 CRM → Google Sheet Sync Started")
 
@@ -103,9 +103,14 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row_data.append(v)
 
-        # 🔁 UPDATE EXISTING
+        # 🔁 UPDATE EXISTING (SAFE)
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
+
+            # ✅ SAFETY GUARD (NO INVALID ROW)
+            if row_num < 2:
+                continue
+
             updates.append({
                 "range": f"A{row_num}:K{row_num}",
                 "values": [row_data]
@@ -115,9 +120,8 @@ while page < MAX_PAGES:
         # 🆕 NEW LEAD (APPEND BOTTOM)
         else:
             new_rows.append(row_data)
+            existing_map[lead_id] = sheet.row_count + len(new_rows)
             new_count += 1
-            existing_map[lead_id] = -1   # mark as already present
-
 
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
@@ -131,48 +135,3 @@ while page < MAX_PAGES:
 print("✅ SYNC COMPLETED")
 print("🆕 New Leads:", new_count)
 print("♻️ Updated Leads:", update_count)
-
-# =====================================================
-# 🧹 AUTO REMOVE DUPLICATE lead_id (KEEP LATEST ONLY)
-# =====================================================
-rows = sheet.get_all_values()
-if len(rows) > 1:
-    headers = rows[0]
-    data = rows[1:]
-
-    if "lead_id" in headers:
-        lead_id_idx = headers.index("lead_id")
-        last_updated_idx = headers.index("last_updated") if "last_updated" in headers else None
-
-        seen = {}
-        delete_rows = []
-
-        for i, row in enumerate(data, start=2):
-            if len(row) <= lead_id_idx:
-                continue
-
-            lid = row[lead_id_idx]
-            if not lid:
-                continue
-
-            if lid not in seen:
-                seen[lid] = (row, i)
-            else:
-                old_row, old_i = seen[lid]
-
-                if last_updated_idx is not None:
-                    old_time = old_row[last_updated_idx] if len(old_row) > last_updated_idx else ""
-                    new_time = row[last_updated_idx] if len(row) > last_updated_idx else ""
-
-                    if new_time > old_time:
-                        delete_rows.append(old_i)
-                        seen[lid] = (row, i)
-                    else:
-                        delete_rows.append(i)
-                else:
-                    delete_rows.append(i)
-
-        for r in sorted(set(delete_rows), reverse=True):
-            sheet.delete_rows(r)
-
-        print(f"🧹 Duplicate lead_id removed: {len(delete_rows)}")
