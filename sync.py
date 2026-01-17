@@ -14,7 +14,6 @@ REQUEST_TIMEOUT = 90
 PAGE_LIMIT = 200
 MAX_PAGES = 50
 
-# ✅ START DATE (TILL TODAY)
 LEAD_DATE_AFTER = "2025-11-01"
 
 # ================ SECRETS =================
@@ -34,7 +33,7 @@ creds = Credentials.from_service_account_info(
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
-# =========== HEADERS ======================
+# =========== HEADERS (ONLY A–K) ===========
 headers = sheet.row_values(1)
 if not headers:
     headers = [
@@ -52,8 +51,8 @@ if not headers:
     ]
     sheet.append_row(headers)
 
-TOTAL_COLS = len(headers)
-END_COL = chr(ord('A') + TOTAL_COLS - 1)
+TOTAL_COLS = len(headers)           # 11
+END_COL = chr(ord('A') + TOTAL_COLS - 1)  # K
 
 # =========== EXISTING DATA =================
 existing_rows = sheet.get_all_records(expected_headers=headers)
@@ -91,7 +90,6 @@ while page < MAX_PAGES:
 
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ===== PAGE LEVEL DEDUP (latest wins) ====
     dedup = {}
     for item in data:
         lid = str(item.get("lead_id") or item.get("id", "")).strip()
@@ -113,45 +111,35 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row_data.append(v)
 
-        # ✅ FORCE COLUMN COUNT
+        # 🔒 ONLY A–K (Column L untouched forever)
         row_data = row_data[:TOTAL_COLS]
 
-        # 🔁 UPDATE
+        # 🔁 UPDATE (A–K only)
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
-            if row_num <= sheet.row_count:
-                updates.append({
-                    "range": f"A{row_num}:{END_COL}{row_num}",
-                    "values": [row_data]
-                })
-                update_count += 1
+            updates.append({
+                "range": f"A{row_num}:{END_COL}{row_num}",
+                "values": [row_data]
+            })
+            update_count += 1
 
-        # 🆕 INSERT
+        # 🆕 INSERT (A–K only)
         else:
             new_rows.append(row_data)
 
     # ========= SAFE APPEND =========
     if new_rows:
-        sheet.add_rows(len(new_rows) + 10)
-
-        last_row_before = len(sheet.get_all_values())
-
+        sheet.add_rows(len(new_rows) + 5)
+        last_row = len(sheet.get_all_values())
         sheet.append_rows(new_rows, value_input_option="RAW")
 
         for i, r in enumerate(new_rows):
-            existing_map[str(r[0])] = last_row_before + 1 + i
+            existing_map[str(r[0])] = last_row + 1 + i
             new_count += 1
 
     # ========= SAFE UPDATE =========
     if updates:
-        safe_updates = []
-        for u in updates:
-            row_num = int(u["range"].split("A")[1].split(":")[0])
-            if row_num <= sheet.row_count:
-                safe_updates.append(u)
-
-        if safe_updates:
-            sheet.batch_update(safe_updates)
+        sheet.batch_update(updates)
 
     page += 1
     time.sleep(1)
