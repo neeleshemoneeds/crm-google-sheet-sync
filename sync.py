@@ -7,7 +7,7 @@ import time
 
 # ================= CONFIG =================
 API_URL = "https://emoneeds.icg-crm.in/api/leads/getleads"
-SHEET_TAB = "Leads"
+SHEET_TAB = "CRM_Leads"
 
 PAGE_LIMIT = 200
 MAX_PAGES = 100
