@@ -83,17 +83,17 @@ while page < MAX_PAGES:
 
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 👉 PAGE LEVEL DEDUP (latest wins)
-    page_unique = {}
+    # ✅ GLOBAL DEDUP (latest wins)
+    dedup = {}
     for item in data:
         lid = str(item.get("lead_id") or item.get("id"))
         if lid:
-            page_unique[lid] = item
+            dedup[lid] = item
 
     new_rows = []
     updates = []
 
-    for lead_id, item in page_unique.items():
+    for lead_id, item in dedup.items():
         row_data = []
         for h in headers:
             if h == "last_updated":
@@ -104,11 +104,9 @@ while page < MAX_PAGES:
                     v = json.dumps(v, ensure_ascii=False)
                 row_data.append(v)
 
-        # 🔁 UPDATE EXISTING
+        # 🔁 UPDATE
         if lead_id in existing_map:
             row_num = existing_map[lead_id]
-
-            # ✅ GRID SAFETY CHECK
             if row_num <= sheet.row_count:
                 updates.append({
                     "range": f"A{row_num}:K{row_num}",
@@ -116,23 +114,23 @@ while page < MAX_PAGES:
                 })
                 update_count += 1
 
-        # 🆕 NEW LEAD (APPEND BOTTOM)
+        # 🆕 INSERT
         else:
             new_rows.append(row_data)
-            new_count += 1
 
-    # 🔽 EXPAND SHEET IF REQUIRED
+    # ========= SAFE APPEND =========
     if new_rows:
-        needed = len(new_rows)
-        if sheet.row_count < sheet.row_count + needed:
-            sheet.add_rows(needed + 5)
+        start_row = sheet.row_count + 1
+
+        # 🔽 ensure capacity
+        if sheet.row_count + len(new_rows) > sheet.row_count:
+            sheet.add_rows(len(new_rows) + 10)
 
         sheet.append_rows(new_rows, value_input_option="RAW")
 
-        # update map for future pages
-        start_row = sheet.row_count - len(new_rows) + 1
         for i, r in enumerate(new_rows):
             existing_map[str(r[0])] = start_row + i
+            new_count += 1
 
     if updates:
         sheet.batch_update(updates)
