@@ -6,7 +6,7 @@ import gspread
 import numpy as np
 from google.oauth2.service_account import Credentials
 
-# ---------- PGSQL CONNECTION (GitHub Secrets) ----------
+# ---------- PGSQL CONNECTION ----------
 conn = psycopg2.connect(
     host=os.environ["PG_HOST"],
     database=os.environ["PG_DB"],
@@ -30,10 +30,16 @@ WHERE pa.appointment_time_slot IS NOT NULL
 df = pd.read_sql(query, conn)
 conn.close()
 
-# ---------- 🔥 IMPORTANT FIX (NaN / Infinity handling) ----------
-# Google Sheets JSON NaN / inf accept nahi karta
+# ---------- 🔥 CLEAN DATA FOR GOOGLE SHEETS ----------
+
+# 1️⃣ Replace NaN / inf
 df = df.replace([np.inf, -np.inf], np.nan)
 df = df.fillna("")
+
+# 2️⃣ Convert ALL datetime / timestamp columns to string
+for col in df.columns:
+    if pd.api.types.is_datetime64_any_dtype(df[col]):
+        df[col] = df[col].astype(str)
 
 # ---------- GOOGLE SHEET ----------
 scope = [
@@ -49,10 +55,8 @@ creds = Credentials.from_service_account_info(
 
 client = gspread.authorize(creds)
 
-# Existing Google Sheet, OPD tab
 sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("OPD")
 
-# Clear old data and upload fresh
 sheet.clear()
 sheet.update([df.columns.tolist()] + df.values.tolist())
 
