@@ -37,7 +37,7 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # Same sheet, NEW TAB
-sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("PGSQL_DATA")
+sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("OPD")
 
 sheet.clear()
 sheet.update([df.columns.tolist()] + df.values.tolist())
