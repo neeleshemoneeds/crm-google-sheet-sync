@@ -1,4 +1,8 @@
 requests
 gspread
 google-auth
+psycopg2-binary
+pandas
+gspread
+google-auth
 
