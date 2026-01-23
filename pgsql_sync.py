@@ -7,10 +7,10 @@ import json
 
 # ---------- PGSQL CREDS (GitHub Secrets se) ----------
 conn = psycopg2.connect(
-    host=os.environ["77.37.44.94"],
-    database=os.environ["emoneeds_prod"],
-    user=os.environ["neelesh"],
-    password=os.environ["Neelesh#@5444"],
+    host=os.environ["PG_HOST"],
+    database=os.environ["PG_DB"],
+    user=os.environ["PG_USER"],
+    password=os.environ["PG_PASSWORD"],
     port=os.environ.get("PG_PORT", 5432)
 )
 
