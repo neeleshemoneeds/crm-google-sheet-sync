@@ -1,11 +1,12 @@
 import os
+import json
 import psycopg2
 import pandas as pd
 import gspread
+import numpy as np
 from google.oauth2.service_account import Credentials
-import json
 
-# ---------- PGSQL CREDS (GitHub Secrets se) ----------
+# ---------- PGSQL CONNECTION (GitHub Secrets) ----------
 conn = psycopg2.connect(
     host=os.environ["PG_HOST"],
     database=os.environ["PG_DB"],
@@ -24,11 +25,15 @@ LEFT JOIN public.patient_registration pr
 WHERE pa.appointment_time_slot IS NOT NULL
   AND pa.appointment_date::date >= DATE '2025-12-01'
   AND pa.appointment_date::date <= CURRENT_DATE;
-
 """
 
 df = pd.read_sql(query, conn)
 conn.close()
+
+# ---------- 🔥 IMPORTANT FIX (NaN / Infinity handling) ----------
+# Google Sheets JSON NaN / inf accept nahi karta
+df = df.replace([np.inf, -np.inf], np.nan)
+df = df.fillna("")
 
 # ---------- GOOGLE SHEET ----------
 scope = [
@@ -44,10 +49,11 @@ creds = Credentials.from_service_account_info(
 
 client = gspread.authorize(creds)
 
-# Same sheet, NEW TAB
+# Existing Google Sheet, OPD tab
 sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("OPD")
 
+# Clear old data and upload fresh
 sheet.clear()
 sheet.update([df.columns.tolist()] + df.values.tolist())
 
-print("✅ PostgreSQL data synced")
+print("✅ PostgreSQL OPD data synced successfully")
