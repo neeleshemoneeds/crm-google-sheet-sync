@@ -71,6 +71,7 @@ client = gspread.authorize(creds)
 
 sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("OPD")
 
+
 sheet.clear()
 sheet.update([df.columns.tolist()] + df.values.tolist())
 
