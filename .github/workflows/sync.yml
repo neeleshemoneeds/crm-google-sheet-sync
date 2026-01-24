@@ -1,8 +1,8 @@
-name: CRM Auto Sync (Every 1 Hour)
+name: CRM Auto Sync (Every 3 Hour)
 
 on:
   schedule:
-    - cron: "0 * * * *"   # every 1 hour
+    - cron: "0 */3 * * *"   # every 3 hour
   workflow_dispatch:
 
 jobs:
