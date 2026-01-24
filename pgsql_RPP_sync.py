@@ -17,27 +17,34 @@ conn = psycopg2.connect(
 
 query = """
 SELECT
-    pa._id,
-    pa.patient_appointment_id,
-    pa.patient_id,
-    pa.patient_ref_id,
-    pa.patient_name,
-    pa.assigned_type,
-    pa.assigned_to_name,
-    pa.assigned_to_role_name,
-    pa.hosp_name,
-    pa.appointment_date,
-    pa.date_created,
-    pa.appointment_time_slot,
-    pa.patient_rpp_id,
-    pa.is_online,
-    pr.lead_source
-FROM public.patient_appointment pa
-LEFT JOIN public.patient_registration pr
-    ON pa.patient_id = pr.patient_id
-WHERE pa.appointment_time_slot IS NOT NULL
-  AND pa.appointment_date::date >= DATE '2025-12-01'
-  AND pa.appointment_date::date <= CURRENT_DATE;
+    prr._id,
+    prr.patient_rpp_id,
+    prr.amount,
+    prr.assigned_to_name,
+    prr.assigned_to_role_name,
+    prr.counsellor_name,
+    prr.date_created,
+    prr.date_updated,
+    prr.due_date,
+    prr.enrollment_date,
+    prr.hosp_name,
+    prr.mobile_number,
+    prr.package_diagnosis_name,
+    prr.package_name,
+    prr.package_price,
+    prr.patient_id,
+    prr.psychiatrist_name,
+    prr.psychologist_name,
+    prr.renewalstatus,
+    prr.status,
+    prr.customized_plan,
+    prr.renewed,
+    prr.renewal_date,
+    prr.lead_source
+FROM public.patient_rpp_registration prr
+WHERE prr.enrollment_date::date >= DATE '2025-12-01'
+  AND prr.enrollment_date::date <= CURRENT_DATE;
+
 
 """
 
