@@ -1,8 +1,8 @@
-name: CRM Auto Sync (3 Hour)
+name: CRM Auto Sync (Every 1 Hour)
 
 on:
   schedule:
-    - cron: "0 */1 * * *"   # every 1 hour
+    - cron: "0 * * * *"   # every 1 hour
   workflow_dispatch:
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
         run: |
           python delete_removed_leads.py
 
-      # 👇👇 YAHI ADD KARNA HAI (LAST ME)
+      # ---------- PostgreSQL OPD Sync ----------
       - name: Run PostgreSQL OPD Sync
         env:
           PG_HOST: ${{ secrets.PG_HOST }}
@@ -50,3 +50,16 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         run: |
           python pgsql_OPD_sync.py
+
+      # ---------- PostgreSQL RPP Sync ----------
+      - name: Run PostgreSQL RPP Sync
+        env:
+          PG_HOST: ${{ secrets.PG_HOST }}
+          PG_DB: ${{ secrets.PG_DB }}
+          PG_USER: ${{ secrets.PG_USER }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
+          PG_PORT: ${{ secrets.PG_PORT }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          python pgsql_RPP_sync.py
