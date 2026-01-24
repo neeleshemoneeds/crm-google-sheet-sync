@@ -39,7 +39,7 @@ jobs:
           python delete_removed_leads.py
 
       # 👇👇 YAHI ADD KARNA HAI (LAST ME)
-      - name: Run PostgreSQL Sync
+      - name: Run PostgreSQL OPD Sync
         env:
           PG_HOST: ${{ secrets.PG_HOST }}
           PG_DB: ${{ secrets.PG_DB }}
