@@ -16,8 +16,21 @@ conn = psycopg2.connect(
 )
 
 query = """
-SELECT 
-    pa.*, 
+SELECT
+    pa._id,
+    pa.patient_appointment_id,
+    pa.patient_id,
+    pa.patient_ref_id,
+    pa.patient_name,
+    pa.assigned_type,
+    pa.assigned_to_name,
+    pa.assigned_to_role_name,
+    pa.hosp_name,
+    pa.appointment_date,
+    pa.date_created,
+    pa.appointment_time_slot,
+    pa.patient_rpp_id,
+    pa.is_online,
     pr.lead_source
 FROM public.patient_appointment pa
 LEFT JOIN public.patient_registration pr
@@ -25,6 +38,7 @@ LEFT JOIN public.patient_registration pr
 WHERE pa.appointment_time_slot IS NOT NULL
   AND pa.appointment_date::date >= DATE '2025-12-01'
   AND pa.appointment_date::date <= CURRENT_DATE;
+
 """
 
 df = pd.read_sql(query, conn)
