@@ -30,16 +30,16 @@ WHERE pa.appointment_time_slot IS NOT NULL
 df = pd.read_sql(query, conn)
 conn.close()
 
-# ---------- 🔥 CLEAN DATA FOR GOOGLE SHEETS ----------
+# ---------- 🔥 ULTIMATE GOOGLE SHEET SAFE CLEANING ----------
 
 # 1️⃣ Replace NaN / inf
 df = df.replace([np.inf, -np.inf], np.nan)
-df = df.fillna("")
 
-# 2️⃣ Convert ALL datetime / timestamp columns to string
-for col in df.columns:
-    if pd.api.types.is_datetime64_any_dtype(df[col]):
-        df[col] = df[col].astype(str)
+# 2️⃣ Convert EVERYTHING to string (BEST FIX)
+df = df.astype(str)
+
+# 3️⃣ Replace "nan", "None", "NaT" with empty
+df = df.replace(["nan", "None", "NaT"], "")
 
 # ---------- GOOGLE SHEET ----------
 scope = [
