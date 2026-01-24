@@ -12,7 +12,7 @@ conn = psycopg2.connect(
     database=os.environ["PG_DB"],
     user=os.environ["PG_USER"],
     password=os.environ["PG_PASSWORD"],
-    port=os.environ.get("PG_PORT", 5432)
+    port=int(os.environ.get("PG_PORT", 5432))
 )
 
 query = """
@@ -44,22 +44,20 @@ SELECT
 FROM public.patient_rpp_registration prr
 WHERE prr.enrollment_date::date >= DATE '2025-12-01'
   AND prr.enrollment_date::date <= CURRENT_DATE;
-
-
 """
 
 df = pd.read_sql(query, conn)
 conn.close()
 
-# ---------- 🔥 ULTIMATE GOOGLE SHEET SAFE CLEANING ----------
+# ---------- 🔥 GOOGLE SHEET SAFE CLEANING (NO 400 ERRORS) ----------
 
-# 1️⃣ Replace NaN / inf
+# Replace inf values
 df = df.replace([np.inf, -np.inf], np.nan)
 
-# 2️⃣ Convert EVERYTHING to string (BEST FIX)
+# Convert EVERYTHING to string
 df = df.astype(str)
 
-# 3️⃣ Replace "nan", "None", "NaT" with empty
+# Clean common invalid literals
 df = df.replace(["nan", "None", "NaT"], "")
 
 # ---------- GOOGLE SHEET ----------
@@ -69,6 +67,7 @@ scope = [
 ]
 
 service_account_info = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
+
 creds = Credentials.from_service_account_info(
     service_account_info,
     scopes=scope
