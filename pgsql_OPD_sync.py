@@ -42,7 +42,7 @@ WHERE pa.appointment_time_slot IS NOT NULL
   AND NOT EXISTS (
         SELECT 1
         FROM public.patient_csr_terms pct
-        WHERE pct.patient_id = pa.patient_id
+        WHERE pct.patientid = pa.patient_id
   );
 """
 
