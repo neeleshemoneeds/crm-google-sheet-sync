@@ -15,6 +15,7 @@ conn = psycopg2.connect(
     port=os.environ.get("PG_PORT", 5432)
 )
 
+# ---------- SQL QUERY ----------
 query = """
 SELECT
     pa._id,
@@ -43,22 +44,23 @@ WHERE pa.appointment_time_slot IS NOT NULL
         FROM public.patient_csr_terms pct
         WHERE pct.patient_id = pa.patient_id
   );
-
-
 """
 
 df = pd.read_sql(query, conn)
 conn.close()
+
+# ✅ ADD (SAFE DEBUG – OPTIONAL BUT USEFUL)
+print("📊 Rows fetched from PostgreSQL:", len(df))
 
 # ---------- 🔥 ULTIMATE GOOGLE SHEET SAFE CLEANING ----------
 
 # 1️⃣ Replace NaN / inf
 df = df.replace([np.inf, -np.inf], np.nan)
 
-# 2️⃣ Convert EVERYTHING to string (BEST FIX)
+# 2️⃣ Convert EVERYTHING to string (MOST IMPORTANT FIX)
 df = df.astype(str)
 
-# 3️⃣ Replace "nan", "None", "NaT" with empty
+# 3️⃣ Replace string junk with empty
 df = df.replace(["nan", "None", "NaT"], "")
 
 # ---------- GOOGLE SHEET ----------
@@ -75,10 +77,14 @@ creds = Credentials.from_service_account_info(
 
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("OPD")
+sheet = client.open_by_key(
+    os.environ["SHEET_ID"]
+).worksheet("OPD")
 
-
-sheet.clear()
-sheet.update([df.columns.tolist()] + df.values.tolist())
-
-print("✅ PostgreSQL OPD data synced successfully")
+# ✅ ADD (SAFE GUARD – EMPTY DATA CHECK)
+if df.empty:
+    print("⚠️ No data found. Sheet not updated.")
+else:
+    sheet.clear()
+    sheet.update([df.columns.tolist()] + df.values.tolist())
+    print("✅ PostgreSQL OPD data synced successfully")
