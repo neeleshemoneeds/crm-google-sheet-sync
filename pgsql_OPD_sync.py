@@ -37,7 +37,7 @@ FROM public.patient_appointment pa
 LEFT JOIN public.patient_registration pr
     ON pa.patient_id = pr.patient_id
 WHERE pa.appointment_time_slot IS NOT NULL
-  AND pa.appointment_date::date >= DATE '2025-12-01'
+  AND pa.appointment_date::date >= DATE '2025-11-01'
   AND pa.appointment_date::date <= CURRENT_DATE
   AND NOT EXISTS (
         SELECT 1
