@@ -42,8 +42,13 @@ SELECT
     prr.renewal_date,
     prr.lead_source
 FROM public.patient_rpp_registration prr
+INNER JOIN public.patient_registration pr
+    ON prr.patient_id = pr.patient_id
 WHERE prr.enrollment_date::date >= DATE '2025-11-01'
-  AND prr.enrollment_date::date <= CURRENT_DATE;
+  AND prr.enrollment_date::date <= CURRENT_DATE
+  AND pr.csr_id <> 'regular'
+  AND pr.is_nvf_facility = false;
+
 """
 
 df = pd.read_sql(query, conn)
