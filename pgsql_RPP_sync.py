@@ -42,7 +42,7 @@ SELECT
     prr.renewal_date,
     prr.lead_source
 FROM public.patient_rpp_registration prr
-WHERE prr.enrollment_date::date >= DATE '2025-12-01'
+WHERE prr.enrollment_date::date >= DATE '2025-11-01'
   AND prr.enrollment_date::date <= CURRENT_DATE;
 """
 
