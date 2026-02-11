@@ -15,7 +15,7 @@ conn = psycopg2.connect(
     port=os.environ.get("PG_PORT", 5432)
 )
 
-# ---------- SQL QUERY (LAST 12 FULL MONTHS AUTO) ----------
+# ---------- SQL QUERY (FIXED) ----------
 query = """
 SELECT 
     pr.patient_name,
@@ -42,7 +42,7 @@ SELECT
         WHEN EXISTS (
             SELECT 1 
             FROM patient_csr_terms csr
-            WHERE csr."appointmentObjectId" = pa.id
+            WHERE csr.appointmentobjectid = pa.id
         )
         THEN 'NTPC'
         ELSE 'NON NTPC'
