@@ -28,7 +28,7 @@ SELECT
             FROM patient_appointment prev
             WHERE prev.patient_id = pa.patient_id
               AND prev.appointment_time_slot IS NOT NULL
-              AND prev.appointment_date < pa.appointment_date
+              AND prev.appointment_date::date < pa.appointment_date::date
         )
         THEN 'FOLLOW_UP OPD'
         ELSE 'NEW OPD'
@@ -58,10 +58,14 @@ LEFT JOIN patient_registration pr
 WHERE pa.appointment_time_slot IS NOT NULL
 
 -- LAST 12 FULL MONTHS (AUTO ROLLING)
-AND pa.appointment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
-AND pa.appointment_date < date_trunc('month', CURRENT_DATE)
+AND pa.appointment_date::date >= 
+    (date_trunc('month', CURRENT_DATE) - INTERVAL '12 months')::date
 
-ORDER BY pa.appointment_date DESC;
+AND pa.appointment_date::date < 
+    (date_trunc('month', CURRENT_DATE))::date
+
+ORDER BY pa.appointment_date::date DESC;
+
 """
 
 # ---------------------------
