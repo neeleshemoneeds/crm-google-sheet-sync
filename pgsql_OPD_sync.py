@@ -15,52 +15,59 @@ conn = psycopg2.connect(
     port=os.environ.get("PG_PORT", 5432)
 )
 
-# ---------- SQL QUERY ----------
+# ---------- SQL QUERY (LAST 12 FULL MONTHS AUTO) ----------
 query = """
-SELECT
-    pa._id,
-    pa.patient_appointment_id,
-    pa.patient_id,
+SELECT 
+    pr.patient_name,
     pa.patient_ref_id,
-    pa.patient_name,
-    pa.assigned_type,
-    pa.assigned_to_name,
-    pa.assigned_to_role_name,
-    pa.hosp_name,
-    pa.appointment_date,
-    pa.date_created,
-    pa.appointment_time_slot,
-    pa.patient_rpp_id,
-    pa.is_online,
-    pr.lead_source
-FROM public.patient_appointment pa
-LEFT JOIN public.patient_registration pr
+    pr.lead_source,
+    pr.mobile_number,
+    pa.appointment_date AS opd_date,
+
+    -- OPD TYPE (New / Follow-up)
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM patient_appointment prev
+            WHERE prev.patient_id = pa.patient_id
+              AND prev.appointment_time_slot IS NOT NULL
+              AND prev.appointment_date < pa.appointment_date
+        )
+        THEN 'FOLLOW_UP OPD'
+        ELSE 'NEW OPD'
+    END AS opd_type,
+
+    -- CSR TYPE (NTPC / NON NTPC)
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM patient_csr_terms csr
+            WHERE csr."appointmentObjectId" = pa.id
+        )
+        THEN 'NTPC'
+        ELSE 'NON NTPC'
+    END AS csr_type
+
+FROM patient_appointment pa
+
+LEFT JOIN patient_registration pr 
     ON pa.patient_id = pr.patient_id
+
 WHERE pa.appointment_time_slot IS NOT NULL
-  AND pa.appointment_date::date >= DATE '2025-11-01'
-  AND pa.appointment_date::date <= CURRENT_DATE
-  AND NOT EXISTS (
-        SELECT 1
-        FROM public.patient_csr_terms pct
-        WHERE pct.patientid = pa.patient_id
-  );
+
+-- 🔥 LAST 12 FULL MONTHS (AUTO ROLLING)
+AND pa.appointment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
+AND pa.appointment_date < date_trunc('month', CURRENT_DATE);
 """
 
 df = pd.read_sql(query, conn)
 conn.close()
 
-# ✅ ADD (SAFE DEBUG – OPTIONAL BUT USEFUL)
 print("📊 Rows fetched from PostgreSQL:", len(df))
 
-# ---------- 🔥 ULTIMATE GOOGLE SHEET SAFE CLEANING ----------
-
-# 1️⃣ Replace NaN / inf
+# ---------- SAFE CLEANING ----------
 df = df.replace([np.inf, -np.inf], np.nan)
-
-# 2️⃣ Convert EVERYTHING to string (MOST IMPORTANT FIX)
 df = df.astype(str)
-
-# 3️⃣ Replace string junk with empty
 df = df.replace(["nan", "None", "NaT"], "")
 
 # ---------- GOOGLE SHEET ----------
@@ -81,10 +88,9 @@ sheet = client.open_by_key(
     os.environ["SHEET_ID"]
 ).worksheet("OPD")
 
-# ✅ ADD (SAFE GUARD – EMPTY DATA CHECK)
 if df.empty:
     print("⚠️ No data found. Sheet not updated.")
 else:
     sheet.clear()
     sheet.update([df.columns.tolist()] + df.values.tolist())
-    print("✅ PostgreSQL OPD data synced successfully")
+    print("✅ PostgreSQL OPD data synced successfully (Last 12 Months Auto)")
