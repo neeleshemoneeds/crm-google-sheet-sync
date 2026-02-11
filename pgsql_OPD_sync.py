@@ -6,11 +6,11 @@ import os
 # DATABASE CONNECTION
 # ---------------------------
 conn = psycopg2.connect(
-    host=os.environ["DB_HOST"],
-    database=os.environ["DB_NAME"],
-    user=os.environ["DB_USER"],
-    password=os.environ["DB_PASSWORD"],
-    port=os.environ["DB_PORT"]
+    host=os.environ["PG_HOST"],
+    database=os.environ["PG_DB"],
+    user=os.environ["PG_USER"],
+    password=os.environ["PG_PASSWORD"],
+    port=os.environ["PG_PORT"]
 )
 
 # ---------------------------
