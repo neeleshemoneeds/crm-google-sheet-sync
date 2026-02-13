@@ -17,48 +17,53 @@ conn = psycopg2.connect(
 
 # ---------- SQL QUERY (🔥 LAST 12 MONTH ROLLING + CURRENT MTD) ----------
 query = """
-SELECT
-    pa._id,
+SELECT 
+    pr.patient_name,
     pa.patient_ref_id,
-    
+    pr.lead_source,
+    pr.mobile_number,
+    pa.appointment_date::date AS opd_date,
+
     CASE 
         WHEN EXISTS (
-            SELECT 1
-            FROM public.patient_appointment pa_prev
+            SELECT 1 
+            FROM patient_appointment pa_prev
             WHERE pa_prev.patient_id = pa.patient_id
               AND pa_prev.appointment_time_slot IS NOT NULL
-              AND pa_prev.appointment_date < pa.appointment_date
-            LIMIT 1
+              AND pa_prev.appointment_date::date < pa.appointment_date::date
         )
         THEN 'FOLLOW_UP OPD'
         ELSE 'NEW OPD'
     END AS opd_type,
 
-    pr.patient_name,
-    pr.lead_source,
-    pr.mobile_number,
-    pa.appointment_date AS opd_date,
-
-    CASE
-        WHEN EXISTS (
-            SELECT 1
-            FROM public.patient_csr_terms pct
-            WHERE pct.appointmentobjectid = pa._id
-        )
+    CASE 
+        WHEN COUNT(csr.appointmentobjectid) > 0 
         THEN 'NTPC'
         ELSE 'NON NTPC'
     END AS csr_type
 
-FROM public.patient_appointment pa
+FROM patient_appointment pa
 
-LEFT JOIN public.patient_registration pr
+LEFT JOIN patient_registration pr
     ON pa.patient_id = pr.patient_id
 
-WHERE pa.appointment_time_slot IS NOT NULL
-  AND pa.appointment_date::date >= 
-      (date_trunc('month', CURRENT_DATE) - INTERVAL '11 months')
-  AND pa.appointment_date::date <= CURRENT_DATE
-;
+LEFT JOIN patient_csr_terms csr
+    ON pa._id = csr.appointmentobjectid
+
+WHERE 
+    pa.appointment_time_slot IS NOT NULL
+    AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+    AND pa.appointment_date::date <= CURRENT_DATE
+
+GROUP BY 
+    pr.patient_name,
+    pa.patient_ref_id,
+    pr.lead_source,
+    pr.mobile_number,
+    pa.appointment_date,
+    pa.patient_id,
+    pa._id;
+
 """
 
 df = pd.read_sql(query, conn)
