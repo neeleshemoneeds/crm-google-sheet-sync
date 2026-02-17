@@ -18,51 +18,31 @@ conn = psycopg2.connect(
 # ---------- SQL QUERY (🔥 LAST 12 MONTH ROLLING + CURRENT MTD) ----------
 query = """
 SELECT 
-    pr.patient_name,
-    pa.patient_ref_id,
-    pr.lead_source,
-    pr.mobile_number,
-    pa.appointment_date::date AS opd_date,
+pr.patient_id,
+pr.age,
+pr.district_id,
+pr.gender_name,
+pa.hosp_name,
+pr.mobile_number,
+pr.patient_name,
+pr.is_nvf_facility,
+pr.lead_source,
+pr.marketing_person_name,
+pa.assigned_to_name,
+pa.assigned_to_role_name,
+pa.appointment_date,
+pa.appointment_time_slot
 
-    CASE 
-        WHEN EXISTS (
-            SELECT 1 
-            FROM patient_appointment pa_prev
-            WHERE pa_prev.patient_id = pa.patient_id
-              AND pa_prev.appointment_time_slot IS NOT NULL
-              AND pa_prev.appointment_date::date < pa.appointment_date::date
-        )
-        THEN 'FOLLOW_UP OPD'
-        ELSE 'NEW OPD'
-    END AS opd_type,
+FROM public.patient_registration pr
 
-    CASE 
-        WHEN COUNT(csr.appointmentobjectid) > 0 
-        THEN 'NTPC'
-        ELSE 'NON NTPC'
-    END AS csr_type
-
-FROM patient_appointment pa
-
-LEFT JOIN patient_registration pr
-    ON pa.patient_id = pr.patient_id
-
-LEFT JOIN patient_csr_terms csr
-    ON pa._id = csr.appointmentobjectid
+LEFT JOIN public.patient_appointment pa
+ON pr.patient_id = pa.patient_id
 
 WHERE 
-    pa.appointment_time_slot IS NOT NULL
-    AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
-    AND pa.appointment_date::date <= CURRENT_DATE
+pa.appointment_time_slot <> ''
+AND pa.appointment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+AND pa.appointment_date <= CURRENT_DATE;
 
-GROUP BY 
-    pr.patient_name,
-    pa.patient_ref_id,
-    pr.lead_source,
-    pr.mobile_number,
-    pa.appointment_date,
-    pa.patient_id,
-    pa._id;
 
 """
 
