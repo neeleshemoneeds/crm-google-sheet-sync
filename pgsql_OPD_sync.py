@@ -25,24 +25,39 @@ pr.gender_name,
 pa.hosp_name,
 pr.mobile_number,
 pr.patient_name,
-pr.is_nvf_facility,
 pr.lead_source,
 pr.marketing_person_name,
 pa.assigned_to_name,
 pa.assigned_to_role_name,
 pa.appointment_date,
-pa.appointment_time_slot
+pa.appointment_time_slot,
+
+CASE 
+    WHEN (
+        SELECT COUNT(*) 
+        FROM public.patient_appointment pa_prev
+        WHERE pa_prev.patient_id = pa.patient_id
+        AND pa_prev.appointment_time_slot <> ''
+        AND pa_prev.appointment_date::date < pa.appointment_date::date
+    ) > 0 
+    THEN 'OLD OPD'
+    ELSE 'NEW OPD'
+END AS opd_status
 
 FROM public.patient_registration pr
 
 LEFT JOIN public.patient_appointment pa
 ON pr.patient_id = pa.patient_id
 
+LEFT JOIN public.patient_csr_terms csr
+ON pa._id = csr.appointmentobjectid
+
 WHERE 
 pa.appointment_time_slot <> ''
+AND csr.appointmentobjectid IS NULL
+AND pr.is_nvf_facility = 'FALSE'
 AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
 AND pa.appointment_date::date <= CURRENT_DATE;
-
 
 """
 
