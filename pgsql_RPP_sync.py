@@ -16,38 +16,75 @@ conn = psycopg2.connect(
 )
 
 query = """
-SELECT
-    prr._id,
-    prr.patient_rpp_id,
-    prr.amount,
-    prr.assigned_to_name,
-    prr.assigned_to_role_name,
-    prr.counsellor_name,
-    prr.date_created,
-    prr.date_updated,
-    prr.due_date,
-    prr.enrollment_date,
-    prr.hosp_name,
-    prr.mobile_number,
-    prr.package_diagnosis_name,
-    prr.package_name,
-    prr.package_price,
-    prr.patient_id,
-    prr.psychiatrist_name,
-    prr.psychologist_name,
-    prr.renewalstatus,
-    prr.status,
-    prr.customized_plan,
-    prr.renewed,
-    prr.renewal_date,
-    prr.lead_source
-FROM public.patient_rpp_registration prr
-INNER JOIN public.patient_registration pr
-    ON prr.patient_id = pr.patient_id
-WHERE prr.enrollment_date::date >= DATE '2025-11-01'
-  AND prr.enrollment_date::date <= CURRENT_DATE
-  AND pr.csr_id <> 'regular'
-  AND pr.is_nvf_facility = false;
+SELECT 
+pr.patient_id,
+pr.age,
+pr.district_id,
+pr.gender_name,
+pp.hosp_name,
+pr.mobile_number,
+pr.patient_name,
+pr.lead_source,
+pr.marketing_person_name,
+pp.assigned_to_name,
+pp.assigned_to_role_name,
+pp.counsellor_user_id,
+pp.hosp_name,
+pp.enrollment_date,
+pp.due_date,
+pp.package_diagnosis_name,
+pp.package_name,
+
+CASE
+
+    -- 🟢 First Time Plan
+    WHEN NOT EXISTS (
+        SELECT 1
+        FROM public.patient_rpp_registration old_pp
+        WHERE old_pp.patient_id = pp.patient_id
+        AND old_pp.enrollment_date::date < pp.enrollment_date::date
+    )
+    THEN 'NEW PLAN'
+
+    -- 🟢 Renew (Before or On Due Date)
+    WHEN EXISTS (
+        SELECT 1
+        FROM public.patient_rpp_registration old_pp
+        WHERE old_pp.patient_id = pp.patient_id
+        AND old_pp.enrollment_date::date < pp.enrollment_date::date
+        AND pp.enrollment_date::date <= old_pp.due_date::date
+    )
+    THEN 'RENEW'
+
+    -- 🔴 Inactive (Due Date Passed & No Next Entry)
+    WHEN pp.due_date::date < CURRENT_DATE
+         AND NOT EXISTS (
+            SELECT 1
+            FROM public.patient_rpp_registration next_pp
+            WHERE next_pp.patient_id = pp.patient_id
+            AND next_pp.enrollment_date::date > pp.due_date::date
+         )
+    THEN 'INACTIVE'
+
+    -- 🟡 Revival (Due Passed & Later New Entry)
+    ELSE 'REVIVAL'
+
+END AS plan_status
+
+FROM public.patient_registration pr
+
+LEFT JOIN public.patient_rpp_registration pp
+ON pr.patient_id = pp.patient_id
+
+LEFT JOIN public.patient_csr_terms csr
+ON pp._id = csr.appointmentobjectid
+
+WHERE
+pr.is_nvf_facility = 'FALSE'
+AND csr.rppobjectid IS NULL
+AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+AND pp.enrollment_date::date <= CURRENT_DATE;
+
 
 """
 
