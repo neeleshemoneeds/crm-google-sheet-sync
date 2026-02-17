@@ -40,8 +40,8 @@ ON pr.patient_id = pa.patient_id
 
 WHERE 
 pa.appointment_time_slot <> ''
-AND pa.appointment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
-AND pa.appointment_date <= CURRENT_DATE;
+AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+AND pa.appointment_date::date <= CURRENT_DATE;
 
 
 """
