@@ -81,6 +81,7 @@ ON pp._id = csr.appointmentobjectid
 WHERE
 pr.is_nvf_facility = 'FALSE'
 AND csr.rppobjectid IS NULL
+AND pr.lead_source <> 'CSR'
 AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
 AND pp.enrollment_date::date <= CURRENT_DATE;
 
