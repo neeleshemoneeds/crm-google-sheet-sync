@@ -33,8 +33,7 @@ pp.enrollment_date,
 pp.due_date,
 pp.package_diagnosis_name,
 pp.package_name,
-csr.rppobjectid,
-csr.type,
+
 
 CASE
 
