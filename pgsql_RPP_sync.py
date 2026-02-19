@@ -29,14 +29,17 @@ pr.marketing_person_name,
 pp.assigned_to_name,
 pp.assigned_to_role_name,
 pp.counsellor_user_id,
+pp.hosp_name,
 pp.enrollment_date,
 pp.due_date,
 pp.package_diagnosis_name,
 pp.package_name,
+csr.rppobjectid,
+csr.type,
 
 CASE
 
-    -- 🟢 First Time Plan
+   
     WHEN NOT EXISTS (
         SELECT 1
         FROM public.patient_rpp_registration old_pp
@@ -45,7 +48,7 @@ CASE
     )
     THEN 'NEW PLAN'
 
-    -- 🟢 Renew (Before or On Due Date)
+   
     WHEN EXISTS (
         SELECT 1
         FROM public.patient_rpp_registration old_pp
@@ -55,7 +58,7 @@ CASE
     )
     THEN 'RENEW'
 
-    -- 🔴 Inactive (Due Date Passed & No Next Entry)
+    
     WHEN pp.due_date::date < CURRENT_DATE
          AND NOT EXISTS (
             SELECT 1
@@ -65,7 +68,7 @@ CASE
          )
     THEN 'INACTIVE'
 
-    -- 🟡 Revival (Due Passed & Later New Entry)
+   
     ELSE 'REVIVAL'
 
 END AS plan_status
@@ -76,12 +79,12 @@ LEFT JOIN public.patient_rpp_registration pp
 ON pr.patient_id = pp.patient_id
 
 LEFT JOIN public.patient_csr_terms csr
-ON pp._id = csr.appointmentobjectid
+ON pp._id = csr.rppObjectId
 
 WHERE
 pr.is_nvf_facility = 'FALSE'
 AND csr.rppobjectid IS NULL
-AND pr.lead_source <> 'CSR'
+AND pr.lead_source <> 'CSR' 
 AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
 AND pp.enrollment_date::date <= CURRENT_DATE;
 
