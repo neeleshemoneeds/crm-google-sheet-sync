@@ -18,46 +18,73 @@ conn = psycopg2.connect(
 # ---------- SQL QUERY (🔥 LAST 12 MONTH ROLLING + CURRENT MTD) ----------
 query = """
 SELECT 
-pr.patient_id,
-pr.age,
-pr.district_id,
-pr.gender_name,
-pa.hosp_name,
-pr.mobile_number,
-pr.patient_name,
-pr.lead_source,
-pr.marketing_person_name,
-pa.assigned_to_name,
-pa.assigned_to_role_name,
-pa.appointment_date,
-pa.appointment_time_slot,
+    patient_id,
+    age,
+    district_id,
+    gender_name,
+    hosp_name,
+    mobile_number,
+    patient_name,
+    lead_source,
+    marketing_person_name,
+    assigned_to_name,
+    assigned_to_role_name,
+    opd_date,
+    appointment_time_slot,
+    opd_status
+FROM (
+    SELECT 
+        pr.patient_id,
+        pr.age,
+        pr.district_id,
+        pr.gender_name,
+        pa.hosp_name,
+        pr.mobile_number,
+        pr.patient_name,
+        pr.lead_source,
+        pr.marketing_person_name,
+        pa.assigned_to_name,
+        pa.assigned_to_role_name,
+        pa.appointment_date::date AS opd_date,
+        pa.appointment_time_slot,
 
-CASE 
-    WHEN (
-        SELECT COUNT(*) 
-        FROM public.patient_appointment pa_prev
-        WHERE pa_prev.patient_id = pa.patient_id
-        AND pa_prev.appointment_time_slot <> ''
-        AND pa_prev.appointment_date::date < pa.appointment_date::date
-    ) > 0 
-    THEN 'OLD OPD'
-    ELSE 'NEW OPD'
-END AS opd_status
+        CASE 
+            WHEN (
+                SELECT COUNT(*) 
+                FROM public.patient_appointment pa_prev
+                WHERE pa_prev.patient_id = pa.patient_id
+                AND pa_prev.appointment_time_slot <> ''
+                AND pa_prev.appointment_date::date < pa.appointment_date::date
+            ) > 0 
+            THEN 'OLD OPD'
+            ELSE 'NEW OPD'
+        END AS opd_status,
 
-FROM public.patient_registration pr
+        ROW_NUMBER() OVER (
+            PARTITION BY pr.mobile_number, pa.appointment_date::date
+            ORDER BY pa.appointment_date DESC
+        ) AS rn
 
-LEFT JOIN public.patient_appointment pa
-ON pr.patient_id = pa.patient_id
+    FROM public.patient_registration pr
 
-LEFT JOIN public.patient_csr_terms csr
-ON pa._id = csr.appointmentobjectid
+    LEFT JOIN public.patient_appointment pa
+        ON pr.patient_id = pa.patient_id
 
-WHERE 
-pa.appointment_time_slot <> ''
-AND csr.appointmentobjectid IS NULL
-AND pr.is_nvf_facility = 'FALSE'
-AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
-AND pa.appointment_date::date <= CURRENT_DATE;
+    LEFT JOIN public.patient_csr_terms csr
+        ON pa._id = csr.appointmentobjectid
+
+    WHERE 
+        pa.appointment_time_slot <> ''
+        AND pa.appointment_status IN (1,5)
+        AND csr.appointmentobjectid IS NULL
+        AND pr.is_nvf_facility = 'FALSE'
+        AND LOWER(pr.patient_name) NOT LIKE 'test%'
+        AND LOWER(pr.patient_name) NOT LIKE '%test'
+        AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+        AND pa.appointment_date::date <= CURRENT_DATE
+) t
+WHERE rn = 1;
+
 
 """
 
