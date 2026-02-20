@@ -106,7 +106,8 @@ FROM (
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
         
-        AND pp.enrollment_date::date = '2026-02-19'
+        AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+        AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1;
 
