@@ -27,7 +27,7 @@ SELECT
     patient_name,
     lead_source,
     marketing_person_name,
-    assigned_to_name,
+    assigned_to,
     assigned_to_role_name,
     opd_date,
     appointment_time_slot,
