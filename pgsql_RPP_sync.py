@@ -25,15 +25,16 @@ SELECT
     mobile_number,
     patient_name,
     lead_source,
-    marketing_person_id,
-    assigned_to,
+    marketing_person_name,
+    assigned_to_name,
     assigned_to_role_name,
     counsellor_user_id,
     enrollment_date,
     due_date,
     package_diagnosis_name,
     package_name,
-    plan_status
+    plan_status,
+    direct_after_opd
 FROM (
     SELECT 
         pr.patient_id,
@@ -44,8 +45,8 @@ FROM (
         pr.mobile_number,
         pr.patient_name,
         pr.lead_source,
-        pr.marketing_person_id,
-        pp.assigned_to,
+        pr.marketing_person_name,
+        pp.assigned_to_name,
         pp.assigned_to_role_name,
         pp.counsellor_user_id,
         pp.enrollment_date,
@@ -83,7 +84,43 @@ FROM (
             ELSE 'REVIVAL'
         END AS plan_status,
 
-        -- ✅ Duplicate removal logic (same mobile + same enrollment_date)
+        -- ✅ Corrected Direct / After OPD Logic
+        CASE
+            -- Direct Plan (First Plan + No Valid OPD)
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM public.patient_rpp_registration old_pp
+                WHERE old_pp.patient_id = pp.patient_id
+                AND old_pp.enrollment_date::date < pp.enrollment_date::date
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM public.patient_appointment pa
+                WHERE pa.patient_id = pp.patient_id
+                AND pa.appointment_time_slot IS NOT NULL
+                AND pa.appointment_time_slot <> ''
+            )
+            THEN 'Direct Plan'
+
+            -- After OPD (First Plan + Valid OPD Exists)
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM public.patient_rpp_registration old_pp
+                WHERE old_pp.patient_id = pp.patient_id
+                AND old_pp.enrollment_date::date < pp.enrollment_date::date
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM public.patient_appointment pa
+                WHERE pa.patient_id = pp.patient_id
+                AND pa.appointment_time_slot IS NOT NULL
+                AND pa.appointment_time_slot <> ''
+            )
+            THEN 'After OPD'
+
+            ELSE NULL
+        END AS direct_after_opd,
+
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
             ORDER BY pp.enrollment_date DESC
@@ -101,11 +138,8 @@ FROM (
         pr.is_nvf_facility = 'FALSE'
         AND csr.rppobjectid IS NULL
         AND pr.lead_source <> 'CSR' 
-        
-        -- ✅ Remove test names
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
-        
         AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
         AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
