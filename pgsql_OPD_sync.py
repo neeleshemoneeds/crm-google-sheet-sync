@@ -43,7 +43,7 @@ FROM (
         pr.patient_name,
         pr.lead_source,
         pr.marketing_person_name,
-        pa.assigned_to_name,
+        pa.assigned_to,
         pa.assigned_to_role_name,
         pa.appointment_date::date AS opd_date,
         pa.appointment_time_slot,
