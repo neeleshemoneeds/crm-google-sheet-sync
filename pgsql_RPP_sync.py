@@ -1,3 +1,21 @@
+import os
+import json
+import psycopg2
+import pandas as pd
+import gspread
+import numpy as np
+from google.oauth2.service_account import Credentials
+
+# ---------- PGSQL CONNECTION ----------
+conn = psycopg2.connect(
+    host=os.environ["PG_HOST"],
+    database=os.environ["PG_DB"],
+    user=os.environ["PG_USER"],
+    password=os.environ["PG_PASSWORD"],
+    port=int(os.environ.get("PG_PORT", 5432))
+)
+
+query = """
 SELECT 
     patient_id,
     age,
@@ -119,3 +137,43 @@ FROM (
         AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1;
+
+
+"""
+
+df = pd.read_sql(query, conn)
+conn.close()
+
+# ---------- 🔥 GOOGLE SHEET SAFE CLEANING (NO 400 ERRORS) ----------
+
+# Replace inf values
+df = df.replace([np.inf, -np.inf], np.nan)
+
+# Convert EVERYTHING to string
+df = df.astype(str)
+
+# Clean common invalid literals
+df = df.replace(["nan", "None", "NaT"], "")
+
+# ---------- GOOGLE SHEET ----------
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+service_account_info = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
+
+creds = Credentials.from_service_account_info(
+    service_account_info,
+    scopes=scope
+)
+
+client = gspread.authorize(creds)
+
+sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("RPP")
+
+
+sheet.clear()
+sheet.update([df.columns.tolist()] + df.values.tolist())
+
+print("✅ PostgreSQL RPP data synced successfully")
