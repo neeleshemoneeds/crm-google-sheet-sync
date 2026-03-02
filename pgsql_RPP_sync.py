@@ -84,7 +84,7 @@ FROM (
         rp.psychologist_name,
         rp.psychiatrist_name,
         rp.counsellor_name,
-        rp.patient_ref_id,
+        pp.patient_ref_id,
 
         pp.counsellor_user_id,
         pp.enrollment_date,
