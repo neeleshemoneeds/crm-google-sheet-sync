@@ -67,7 +67,8 @@ SELECT
     package_name,
     service_name,
     plan_status,
-    direct_after_opd
+    direct_after_opd,
+    patient_ref_id
 FROM (
     SELECT
         pr.patient_id,
@@ -83,6 +84,7 @@ FROM (
         rp.psychologist_name,
         rp.psychiatrist_name,
         rp.counsellor_name,
+        rp.patient_ref_id
 
         pp.counsellor_user_id,
         pp.enrollment_date,
