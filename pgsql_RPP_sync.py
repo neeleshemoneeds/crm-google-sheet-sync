@@ -84,7 +84,7 @@ FROM (
         rp.psychologist_name,
         rp.psychiatrist_name,
         rp.counsellor_name,
-        pp.patient_ref_id,
+        pp.patient_ref_id,   -- ✅ FIXED HERE
 
         pp.counsellor_user_id,
         pp.enrollment_date,
@@ -154,8 +154,6 @@ FROM (
         AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1;
-
-
 """
 
 df = pd.read_sql(query, conn)
@@ -163,14 +161,17 @@ conn.close()
 
 # ---------- 🔥 GOOGLE SHEET SAFE CLEANING (NO 400 ERRORS) ----------
 
-# Replace inf values
+# Replace inf values safely
 df = df.replace([np.inf, -np.inf], np.nan)
 
-# Convert EVERYTHING to string
+# Replace NaN properly before string conversion
+df = df.where(pd.notnull(df), "")
+
+# Convert everything to string safely
 df = df.astype(str)
 
-# Clean common invalid literals
-df = df.replace(["nan", "None", "NaT"], "")
+# Remove problematic literals
+df = df.replace(["nan", "None", "NaT", "inf", "-inf"], "")
 
 # ---------- GOOGLE SHEET ----------
 scope = [
@@ -188,7 +189,6 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 sheet = client.open_by_key(os.environ["SHEET_ID"]).worksheet("RPP")
-
 
 sheet.clear()
 sheet.update([df.columns.tolist()] + df.values.tolist())
