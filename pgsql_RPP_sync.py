@@ -47,6 +47,7 @@ plan_history AS (
     FROM public.patient_rpp_registration pp
 )
 
+-- ========== MAIN QUERY (no INACTIVE here) ==========
 SELECT
     patient_id,
     age,
@@ -96,8 +97,6 @@ FROM (
 
         CASE
             WHEN ph.prev_enrollment IS NULL THEN 'NEW PLAN'
-            WHEN pp.due_date::date < CURRENT_DATE
-                 AND ph.next_enrollment IS NULL THEN 'INACTIVE'
             WHEN ph.prev_enrollment IS NOT NULL
                  AND pp.enrollment_date::date <= ph.prev_due::date THEN 'RENEWAL'
             WHEN ph.prev_enrollment IS NOT NULL
@@ -130,7 +129,9 @@ FROM (
         END AS direct_after_opd,
 
         CASE
-            WHEN pp.next_enrollment IS NULL THEN
+            WHEN pp.next_enrollment IS NULL
+                 AND pp.due_date::date >= CURRENT_DATE
+            THEN
                 ROUND(
                     COALESCE(
                         (SELECT SUM(all_pp.due_date::date - all_pp.enrollment_date::date)
@@ -138,8 +139,8 @@ FROM (
                          WHERE all_pp.patient_id = pr.patient_id
                         ), 0
                     ) / 30.0
-                )::text
-            ELSE ''
+                )
+            ELSE NULL
         END AS months_with_us,
 
         ROW_NUMBER() OVER (
@@ -170,7 +171,69 @@ FROM (
         AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
         AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
-WHERE rn = 1;
+WHERE rn = 1
+
+UNION ALL
+
+-- ========== INACTIVE ROWS (new separate row per expired patient) ==========
+SELECT
+    pr.patient_id,
+    pr.age,
+    pr.district_id,
+    pr.gender_name,
+    lp.hosp_name,
+    pr.mobile_number,
+    pr.patient_name,
+    pr.lead_source,
+    pr.marketing_person_name,
+    rp.psychologist_name,
+    rp.psychiatrist_name,
+    rp.counsellor_name,
+    lp.counsellor_user_id,
+    lp.due_date AS enrollment_date,
+    NULL AS due_date,
+    lp.package_diagnosis_name,
+    lp.package_name,
+    NULL AS service_name,
+    'INACTIVE' AS plan_status,
+    NULL AS direct_after_opd,
+    lp.patient_ref_id,
+    ROUND(
+        COALESCE(
+            (SELECT SUM(all_pp.due_date::date - all_pp.enrollment_date::date)
+             FROM public.patient_rpp_registration all_pp
+             WHERE all_pp.patient_id = pr.patient_id
+            ), 0
+        ) / 30.0
+    ) AS months_with_us
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY enrollment_date DESC) AS lrn
+    FROM public.patient_rpp_registration
+) lp
+JOIN public.patient_registration pr
+    ON pr.patient_id = lp.patient_id
+LEFT JOIN role_pivot rp
+    ON rp.patient_id = pr.patient_id
+WHERE lp.lrn = 1
+  AND lp.due_date::date < CURRENT_DATE
+  AND NOT EXISTS (
+      SELECT 1
+      FROM public.patient_rpp_registration future_pp
+      WHERE future_pp.patient_id = lp.patient_id
+        AND future_pp.enrollment_date::date > lp.due_date::date
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM public.patient_csr_terms csr
+      WHERE csr.rppobjectid = lp._id
+  )
+  AND pr.is_nvf_facility = 'FALSE'
+  AND pr.lead_source <> 'CSR'
+  AND LOWER(pr.patient_name) NOT LIKE 'test%'
+  AND LOWER(pr.patient_name) NOT LIKE '%test'
+  AND lp.due_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+  AND lp.due_date::date <= CURRENT_DATE;
 """
 
 df = pd.read_sql(query, conn)
