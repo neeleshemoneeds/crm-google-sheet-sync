@@ -84,7 +84,7 @@ FROM (
         rp.psychologist_name,
         rp.psychiatrist_name,
         rp.counsellor_name,
-        pp.patient_ref_id,   -- ✅ FIXED HERE
+        pp.patient_ref_id,
 
         pp.counsellor_user_id,
         pp.enrollment_date,
@@ -95,10 +95,13 @@ FROM (
 
         CASE
             WHEN ph.prev_enrollment IS NULL THEN 'NEW PLAN'
-            WHEN ph.prev_enrollment IS NOT NULL
-                 AND pp.enrollment_date::date <= ph.prev_due::date THEN 'RENEW'
             WHEN pp.due_date::date < CURRENT_DATE
                  AND ph.next_enrollment IS NULL THEN 'INACTIVE'
+            WHEN ph.prev_enrollment IS NOT NULL
+                 AND pp.enrollment_date::date <= ph.prev_due::date THEN 'RENEWAL'
+            WHEN ph.prev_enrollment IS NOT NULL
+                 AND pp.enrollment_date::date > ph.prev_due::date
+                 AND pp.enrollment_date::date <= (ph.prev_due::date + INTERVAL '30 days') THEN 'LATE RENEWAL'
             ELSE 'REVIVAL'
         END AS plan_status,
 
