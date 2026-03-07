@@ -68,7 +68,8 @@ SELECT
     service_name,
     plan_status,
     direct_after_opd,
-    patient_ref_id
+    patient_ref_id,
+    months_with_us
 FROM (
     SELECT
         pr.patient_id,
@@ -127,6 +128,19 @@ FROM (
             THEN 'After OPD'
             ELSE NULL
         END AS direct_after_opd,
+
+        CASE
+            WHEN pp.next_enrollment IS NULL THEN
+                ROUND(
+                    COALESCE(
+                        (SELECT SUM(all_pp.due_date::date - all_pp.enrollment_date::date)
+                         FROM public.patient_rpp_registration all_pp
+                         WHERE all_pp.patient_id = pr.patient_id
+                        ), 0
+                    ) / 30.0
+                )::text
+            ELSE ''
+        END AS months_with_us,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
