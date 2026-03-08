@@ -128,20 +128,11 @@ FROM (
             ELSE NULL
         END AS direct_after_opd,
 
-        CASE
-            WHEN pp.next_enrollment IS NULL
-                 AND pp.due_date::date >= CURRENT_DATE
-            THEN
-                ROUND(
-                    COALESCE(
-                        (SELECT SUM(all_pp.due_date::date - all_pp.enrollment_date::date)
-                         FROM public.patient_rpp_registration all_pp
-                         WHERE all_pp.patient_id = pr.patient_id
-                        ), 0
-                    ) / 30.0
-                )
-            ELSE NULL
-        END AS months_with_us,
+        (SELECT COUNT(*)
+         FROM public.patient_rpp_registration all_pp
+         WHERE all_pp.patient_id = pr.patient_id
+           AND all_pp.enrollment_date <= pp.enrollment_date
+        ) AS months_with_us,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
@@ -198,14 +189,10 @@ SELECT
     'INACTIVE' AS plan_status,
     NULL AS direct_after_opd,
     lp.patient_ref_id,
-    ROUND(
-        COALESCE(
-            (SELECT SUM(all_pp.due_date::date - all_pp.enrollment_date::date)
-             FROM public.patient_rpp_registration all_pp
-             WHERE all_pp.patient_id = pr.patient_id
-            ), 0
-        ) / 30.0
-    ) AS months_with_us
+    (SELECT COUNT(*)
+     FROM public.patient_rpp_registration all_pp
+     WHERE all_pp.patient_id = lp.patient_id
+    ) + 1 AS months_with_us
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY enrollment_date DESC) AS lrn
