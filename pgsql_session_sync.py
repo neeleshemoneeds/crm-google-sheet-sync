@@ -19,7 +19,8 @@ query = """
 SELECT
     ps.created_by_user_id,
     ps.session_date,
-    pr.lead_source
+    pr.lead_source,
+    pr.is_absent
 FROM public.patient_session ps
 LEFT JOIN public.patient_registration pr
     ON ps.patient_id = pr.patient_id
