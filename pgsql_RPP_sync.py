@@ -31,10 +31,29 @@ WITH latest_roles AS (
 role_pivot AS (
     SELECT
         patient_id,
-        MAX(CASE WHEN assigned_to_role_name = 'Psychologist' THEN assigned_to_name END) AS psychologist_name,
-        MAX(CASE WHEN assigned_to_role_name = 'Psychiatrist' THEN assigned_to_name END) AS psychiatrist_name,
-        MAX(CASE WHEN assigned_to_role_name = 'Counsellor' THEN assigned_to_name END) AS counsellor_name
+        MAX(CASE WHEN assigned_to_role_name='Psychologist' THEN assigned_to_name END) AS psychologist_name,
+        MAX(CASE WHEN assigned_to_role_name='Psychiatrist' THEN assigned_to_name END) AS psychiatrist_name,
+        MAX(CASE WHEN assigned_to_role_name='Counsellor' THEN assigned_to_name END) AS counsellor_name
     FROM latest_roles
+    GROUP BY patient_id
+),
+
+diagnosis_data AS (
+    SELECT
+        patient_id,
+        MAX(diagnosis_name::text) AS diagnosis_name,
+        MAX(assessment_name::text) AS assessment_name
+    FROM public.patient_provision_diagnosis_treatment
+    GROUP BY patient_id
+),
+
+appointment_flag AS (
+    SELECT
+        patient_id,
+        TRUE AS has_appointment
+    FROM public.patient_appointment
+    WHERE appointment_time_slot IS NOT NULL
+      AND appointment_time_slot <> ''
     GROUP BY patient_id
 ),
 
@@ -43,59 +62,84 @@ plan_history AS (
         pp.*,
         LAG(pp.enrollment_date) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS prev_enrollment,
         LAG(pp.due_date) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS prev_due,
-        LEAD(pp.enrollment_date) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS next_enrollment
+        COUNT(*) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS months_with_us
     FROM public.patient_rpp_registration pp
+),
+
+latest_plan AS (
+    SELECT *
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY enrollment_date DESC) AS rn
+        FROM public.patient_rpp_registration
+    ) t
+    WHERE rn = 1
 )
 
--- ========== MAIN QUERY ==========
 SELECT
-    patient_id, hosp_id, assigned_to, gender_name, hosp_name, mobile_number,
-    patient_name, lead_source, marketing_person_name, psychologist_name,
-    psychiatrist_name, counsellor_name, counsellor_user_id, enrollment_date,
-    due_date, package_diagnosis_name, package_name, service_name, plan_status,
-    direct_after_opd, patient_ref_id, months_with_us
+    patient_id,
+    hosp_id::bigint,
+    assigned_to::bigint,
+    gender_name,
+    hosp_name,
+    mobile_number::bigint,
+    patient_name,
+    lead_source,
+    marketing_person_name,
+    psychologist_name,
+    psychiatrist_name,
+    counsellor_name,
+    counsellor_user_id::bigint,
+    enrollment_date::date,
+    due_date::date,
+    package_name,
+    plan_status,
+    direct_after_opd,
+    patient_ref_id::bigint,
+    months_with_us::bigint,
+    diagnosis_name,
+    assessment_name,
+    amount::bigint
 FROM (
     SELECT
-        pr.patient_id, pp.hosp_id, pp.assigned_to, pr.gender_name, pp.hosp_name,
-        pr.mobile_number, pr.patient_name, pr.lead_source, pr.marketing_person_name,
-        rp.psychologist_name, rp.psychiatrist_name, rp.counsellor_name,
-        pp.patient_ref_id, pp.counsellor_user_id, pp.enrollment_date, pp.due_date,
-        pp.package_diagnosis_name, pp.package_name, pra.service_name,
+        pr.patient_id,
+        pp.hosp_id,
+        pp.assigned_to,
+        pr.gender_name,
+        pp.hosp_name,
+        pr.mobile_number,
+        pr.patient_name,
+        pr.lead_source,
+        pr.marketing_person_name,
+        rp.psychologist_name,
+        rp.psychiatrist_name,
+        rp.counsellor_name,
+        pp.counsellor_user_id,
+        pp.patient_ref_id,
+        pp.enrollment_date,
+        pp.due_date,
+        pp.package_name,
+        pp.amount,
+        dd.diagnosis_name,
+        dd.assessment_name,
+        pp.months_with_us,
 
         CASE
-            WHEN ph.prev_enrollment IS NULL THEN 'NEW PLAN'
-            WHEN ph.prev_enrollment IS NOT NULL
-                 AND pp.enrollment_date::date <= ph.prev_due::date THEN 'RENEWAL'
-            WHEN ph.prev_enrollment IS NOT NULL
-                 AND pp.enrollment_date::date > ph.prev_due::date
-                 AND pp.enrollment_date::date <= (ph.prev_due::date + INTERVAL '30 days') THEN 'LATE RENEWAL'
+            WHEN pp.prev_enrollment IS NULL THEN 'NEW PLAN'
+            WHEN pp.enrollment_date::date <= pp.prev_due::date THEN 'RENEWAL'
+            WHEN pp.enrollment_date::date <= pp.prev_due::date + INTERVAL '30 days'
+                THEN 'LATE RENEWAL'
             ELSE 'REVIVAL'
         END AS plan_status,
 
         CASE
-            WHEN ph.prev_enrollment IS NULL
-                 AND NOT EXISTS (
-                     SELECT 1 FROM public.patient_appointment pa
-                     WHERE pa.patient_id = pr.patient_id
-                       AND pa.appointment_time_slot IS NOT NULL
-                       AND pa.appointment_time_slot <> ''
-                 )
+            WHEN pp.prev_enrollment IS NULL
+                 AND af.has_appointment IS NULL
             THEN 'Direct Plan'
-            WHEN ph.prev_enrollment IS NULL
-                 AND EXISTS (
-                     SELECT 1 FROM public.patient_appointment pa
-                     WHERE pa.patient_id = pr.patient_id
-                       AND pa.appointment_time_slot IS NOT NULL
-                       AND pa.appointment_time_slot <> ''
-                 )
+            WHEN pp.prev_enrollment IS NULL
+                 AND af.has_appointment = TRUE
             THEN 'After OPD'
-            ELSE NULL
         END AS direct_after_opd,
-
-        (SELECT COUNT(*) FROM public.patient_rpp_registration all_pp
-         WHERE all_pp.patient_id = pr.patient_id
-           AND all_pp.enrollment_date <= pp.enrollment_date
-        ) AS months_with_us,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
@@ -103,76 +147,100 @@ FROM (
         ) AS rn
 
     FROM public.patient_registration pr
-    JOIN plan_history pp ON pr.patient_id = pp.patient_id
-    LEFT JOIN role_pivot rp ON rp.patient_id = pr.patient_id
-    LEFT JOIN public.patient_csr_terms csr ON pp._id = csr.rppobjectid
-    LEFT JOIN public.patient_appointment pa_join ON pa_join.patient_id = pr.patient_id
-    LEFT JOIN public.patient_rpp_assignment pra ON pra.patient_rpp_id = pa_join.patient_rpp_id
-    LEFT JOIN plan_history ph ON ph._id = pp._id
+    JOIN plan_history pp
+        ON pr.patient_id = pp.patient_id
+
+    LEFT JOIN role_pivot rp
+        ON rp.patient_id = pr.patient_id
+
+    LEFT JOIN diagnosis_data dd
+        ON dd.patient_id = pr.patient_id
+
+    LEFT JOIN appointment_flag af
+        ON af.patient_id = pr.patient_id
+
+    LEFT JOIN public.patient_csr_terms csr
+        ON pp._id = csr.rppobjectid
 
     WHERE
         (
             pr.is_nvf_facility = 'FALSE'
             OR pr.is_nvf_support_revoked = 'TRUE'
             OR EXISTS (
-                SELECT 1 FROM public.patient_rpp_registration rpp_chk
+                SELECT 1
+                FROM public.patient_rpp_registration rpp_chk
                 WHERE rpp_chk.patient_id = pr.patient_id
-                AND LOWER(COALESCE(rpp_chk.remark, '')) <> 'nvf'
+                AND LOWER(COALESCE(rpp_chk.remark,'')) <> 'nvf'
             )
         )
         AND csr.rppobjectid IS NULL
         AND pr.lead_source <> 'CSR'
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
-        AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+        AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
         AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1
 
 UNION ALL
 
--- ========== INACTIVE ROWS ==========
 SELECT
-    pr.patient_id, lp.hosp_id, lp.assigned_to, pr.gender_name, lp.hosp_name,
-    pr.mobile_number, pr.patient_name, pr.lead_source, pr.marketing_person_name,
-    rp.psychologist_name, rp.psychiatrist_name, rp.counsellor_name,
-    lp.counsellor_user_id, lp.due_date AS enrollment_date, NULL AS due_date,
-    lp.package_diagnosis_name, lp.package_name, NULL AS service_name,
-    'INACTIVE' AS plan_status, NULL AS direct_after_opd, lp.patient_ref_id,
-    (SELECT COUNT(*) FROM public.patient_rpp_registration all_pp
-     WHERE all_pp.patient_id = lp.patient_id
-    ) + 1 AS months_with_us
-FROM (
-    SELECT *, ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY enrollment_date DESC) AS lrn
-    FROM public.patient_rpp_registration
-) lp
-JOIN public.patient_registration pr ON pr.patient_id = lp.patient_id
-LEFT JOIN role_pivot rp ON rp.patient_id = pr.patient_id
-WHERE lp.lrn = 1
-  AND lp.due_date::date < CURRENT_DATE
-  AND NOT EXISTS (
-      SELECT 1 FROM public.patient_rpp_registration future_pp
-      WHERE future_pp.patient_id = lp.patient_id
+    pr.patient_id,
+    lp.hosp_id::bigint,
+    lp.assigned_to::bigint,
+    pr.gender_name,
+    lp.hosp_name,
+    pr.mobile_number::bigint,
+    pr.patient_name,
+    pr.lead_source,
+    pr.marketing_person_name,
+    rp.psychologist_name,
+    rp.psychiatrist_name,
+    rp.counsellor_name,
+    lp.counsellor_user_id::bigint,
+    lp.due_date::date AS enrollment_date,
+    NULL::date AS due_date,
+    lp.package_name,
+    'INACTIVE' AS plan_status,
+    NULL AS direct_after_opd,
+    lp.patient_ref_id::bigint,
+    (COUNT(*) OVER (PARTITION BY lp.patient_id)+1)::bigint AS months_with_us,
+    dd.diagnosis_name,
+    dd.assessment_name,
+    lp.amount::bigint
+
+FROM latest_plan lp
+
+JOIN public.patient_registration pr
+    ON pr.patient_id = lp.patient_id
+
+LEFT JOIN role_pivot rp
+    ON rp.patient_id = pr.patient_id
+
+LEFT JOIN diagnosis_data dd
+    ON dd.patient_id = pr.patient_id
+
+WHERE
+    lp.due_date::date < CURRENT_DATE
+
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.patient_rpp_registration future_pp
+        WHERE future_pp.patient_id = lp.patient_id
         AND future_pp.enrollment_date::date > lp.due_date::date
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM public.patient_csr_terms csr
-      WHERE csr.rppobjectid = lp._id
-  )
-  AND (
-      pr.is_nvf_facility = 'FALSE'
-      OR pr.is_nvf_support_revoked = 'TRUE'
-      OR EXISTS (
-          SELECT 1 FROM public.patient_rpp_registration rpp_chk
-          WHERE rpp_chk.patient_id = pr.patient_id
-          AND LOWER(COALESCE(rpp_chk.remark, '')) <> 'nvf'
-      )
-  )
-  AND pr.lead_source <> 'CSR'
-  AND LOWER(pr.patient_name) NOT LIKE 'test%'
-  AND LOWER(pr.patient_name) NOT LIKE '%test'
-  AND lp.due_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
-  AND lp.due_date::date <= CURRENT_DATE
+    )
+
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.patient_csr_terms csr
+        WHERE csr.rppobjectid = lp._id
+    )
+
+    AND pr.lead_source <> 'CSR'
+    AND LOWER(pr.patient_name) NOT LIKE 'test%'
+    AND LOWER(pr.patient_name) NOT LIKE '%test'
+    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+    AND lp.due_date::date <= CURRENT_DATE;
 """
 
 df = pd.read_sql(query, conn)
