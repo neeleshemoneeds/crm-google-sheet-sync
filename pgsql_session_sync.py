@@ -24,8 +24,9 @@ SELECT
 FROM public.patient_session ps
 LEFT JOIN public.patient_registration pr
     ON ps.patient_id = pr.patient_id
-WHERE ps.session_date::date >= (date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months')::date
-  AND ps.session_date::date <= CURRENT_DATE
+WHERE ps.session_date::date BETWEEN
+      (date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months')::date
+      AND CURRENT_DATE;
 """
 
 df = pd.read_sql(query, conn)
