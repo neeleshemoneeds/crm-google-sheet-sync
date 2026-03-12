@@ -25,7 +25,7 @@ FROM public.patient_session ps
 LEFT JOIN public.patient_registration pr
     ON ps.patient_id = pr.patient_id
 WHERE ps.session_date::date BETWEEN
-      (date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months')::date
+      (date_trunc('month', CURRENT_DATE)::date - INTERVAL '24 months')::date
       AND CURRENT_DATE;
 """
 
