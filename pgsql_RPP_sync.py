@@ -16,7 +16,14 @@ conn = psycopg2.connect(
 )
 
 query = """
-WITH latest_roles AS (
+WITH filtered_rpp AS (
+    SELECT *
+    FROM public.patient_rpp_registration
+    WHERE enrollment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+      AND enrollment_date <= CURRENT_DATE
+),
+
+latest_roles AS (
     SELECT DISTINCT ON (pa.patient_id, pra.assigned_to_role_name)
         pa.patient_id,
         pra.assigned_to_role_name,
@@ -48,13 +55,10 @@ diagnosis_data AS (
 ),
 
 appointment_flag AS (
-    SELECT
-        patient_id,
-        TRUE AS has_appointment
+    SELECT DISTINCT patient_id, TRUE AS has_appointment
     FROM public.patient_appointment
     WHERE appointment_time_slot IS NOT NULL
       AND appointment_time_slot <> ''
-    GROUP BY patient_id
 ),
 
 plan_history AS (
@@ -63,17 +67,13 @@ plan_history AS (
         LAG(pp.enrollment_date) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS prev_enrollment,
         LAG(pp.due_date) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS prev_due,
         COUNT(*) OVER (PARTITION BY patient_id ORDER BY enrollment_date) AS months_with_us
-    FROM public.patient_rpp_registration pp
+    FROM filtered_rpp pp
 ),
 
 latest_plan AS (
-    SELECT *
-    FROM (
-        SELECT *,
-               ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY enrollment_date DESC) AS rn
-        FROM public.patient_rpp_registration
-    ) t
-    WHERE rn = 1
+    SELECT DISTINCT ON (patient_id) *
+    FROM public.patient_rpp_registration
+    ORDER BY patient_id, enrollment_date DESC
 )
 
 SELECT
@@ -126,8 +126,8 @@ FROM (
 
         CASE
             WHEN pp.prev_enrollment IS NULL THEN 'NEW PLAN'
-            WHEN pp.enrollment_date::date <= pp.prev_due::date THEN 'RENEWAL'
-            WHEN pp.enrollment_date::date <= pp.prev_due::date + INTERVAL '30 days'
+            WHEN pp.enrollment_date <= pp.prev_due THEN 'RENEWAL'
+            WHEN pp.enrollment_date <= pp.prev_due + INTERVAL '30 days'
                 THEN 'LATE RENEWAL'
             ELSE 'REVIVAL'
         END AS plan_status,
@@ -177,8 +177,6 @@ FROM (
         AND pr.lead_source <> 'CSR'
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
-        AND pp.enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
-        AND pp.enrollment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1
 
@@ -221,13 +219,13 @@ LEFT JOIN diagnosis_data dd
     ON dd.patient_id = pr.patient_id
 
 WHERE
-    lp.due_date::date < CURRENT_DATE
+    lp.due_date < CURRENT_DATE
 
     AND NOT EXISTS (
         SELECT 1
         FROM public.patient_rpp_registration future_pp
         WHERE future_pp.patient_id = lp.patient_id
-        AND future_pp.enrollment_date::date > lp.due_date::date
+        AND future_pp.enrollment_date > lp.due_date
     )
 
     AND NOT EXISTS (
@@ -239,8 +237,8 @@ WHERE
     AND pr.lead_source <> 'CSR'
     AND LOWER(pr.patient_name) NOT LIKE 'test%'
     AND LOWER(pr.patient_name) NOT LIKE '%test'
-    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
-    AND lp.due_date::date <= CURRENT_DATE;
+    AND lp.due_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '18 months'
+    AND lp.due_date <= CURRENT_DATE;
 """
 
 df = pd.read_sql(query, conn)
