@@ -19,7 +19,7 @@ query = """
 WITH filtered_rpp AS (
     SELECT *
     FROM public.patient_rpp_registration
-    WHERE enrollment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
+    WHERE enrollment_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '24 months'
       AND enrollment_date <= CURRENT_DATE
 ),
 
@@ -237,7 +237,7 @@ WHERE
     AND pr.lead_source <> 'CSR'
     AND LOWER(pr.patient_name) NOT LIKE 'test%'
     AND LOWER(pr.patient_name) NOT LIKE '%test'
-    AND lp.due_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '18 months'
+    AND lp.due_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '24 months'
     AND lp.due_date <= CURRENT_DATE;
 """
 
