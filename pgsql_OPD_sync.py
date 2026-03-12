@@ -93,7 +93,7 @@ FROM (
         AND pr.is_nvf_facility = 'FALSE'
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
-        AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '11 months'
+        AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '24 months'
         AND pa.appointment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1;
