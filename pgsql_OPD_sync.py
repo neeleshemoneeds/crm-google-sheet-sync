@@ -31,7 +31,9 @@ SELECT
     assigned_to_role_name,
     opd_date,
     appointment_time_slot,
-    opd_status
+    opd_status,
+    amount,
+    is_suggest_RPP
 FROM (
     SELECT 
         pr.patient_id,
@@ -47,16 +49,16 @@ FROM (
         pa.assigned_to_role_name,
         pa.appointment_date::date AS opd_date,
         pa.appointment_time_slot,
+        pr.amount,
 
         CASE 
-            WHEN (
-                SELECT COUNT(*) 
-                FROM public.patient_appointment pa_prev
-                WHERE pa_prev.patient_id = pa.patient_id
-                AND pa_prev.appointment_time_slot <> ''
-                AND pa_prev.appointment_date::date < pa.appointment_date::date
-            ) > 0 
-            THEN 'OLD OPD'
+            WHEN pp.suggest_emoneeds_rpp = TRUE THEN 'Yes'
+            WHEN pp.suggest_emoneeds_rpp = FALSE THEN 'No'
+            ELSE NULL
+        END AS is_suggest_RPP,
+
+        CASE 
+            WHEN prev.patient_id IS NOT NULL THEN 'OLD OPD'
             ELSE 'NEW OPD'
         END AS opd_status,
 
@@ -72,6 +74,17 @@ FROM (
 
     LEFT JOIN public.patient_csr_terms csr
         ON pa._id = csr.appointmentobjectid
+
+    LEFT JOIN public.patient_prescription pp
+        ON pr.patient_id = pp.patient_id
+
+    LEFT JOIN (
+        SELECT DISTINCT patient_id, appointment_date::date
+        FROM public.patient_appointment
+        WHERE appointment_time_slot <> ''
+    ) prev
+        ON prev.patient_id = pa.patient_id
+        AND prev.appointment_date < pa.appointment_date::date
 
     WHERE 
         pa.appointment_time_slot <> ''
