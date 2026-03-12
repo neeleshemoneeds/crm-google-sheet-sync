@@ -19,26 +19,22 @@ conn = psycopg2.connect(
 query = """
 SELECT 
     patient_id,
-    age,
-    district_id,
     gender_name,
     hosp_name,
     mobile_number,
     patient_name,
     lead_source,
     marketing_person_name,
-    assigned_to,
+    assigned_to::bigint AS assigned_to,
     assigned_to_role_name,
-    opd_date,
+    opd_date::date AS opd_date,
     appointment_time_slot,
     opd_status,
-    amount,
+    amount::bigint AS amount,
     is_suggest_RPP
 FROM (
     SELECT 
         pr.patient_id,
-        pr.age,
-        pr.district_id,
         pr.gender_name,
         pa.hosp_name,
         pr.mobile_number,
@@ -97,8 +93,6 @@ FROM (
         AND pa.appointment_date::date <= CURRENT_DATE
 ) t
 WHERE rn = 1;
-
-
 """
 
 df = pd.read_sql(query, conn)
