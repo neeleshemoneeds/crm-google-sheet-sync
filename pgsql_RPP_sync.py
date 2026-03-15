@@ -19,7 +19,7 @@ query = """
 WITH filtered_rpp AS (
     SELECT *
     FROM public.patient_rpp_registration
-    WHERE enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '24 months'
+    WHERE enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
       AND enrollment_date::date <= CURRENT_DATE
 ),
 
@@ -100,7 +100,7 @@ SELECT
     diagnosis_name,
     assessment_name,
     amount::bigint,
-    lead_type
+    Category_type
 FROM (
     SELECT
         pr.patient_id,
@@ -145,9 +145,9 @@ FROM (
         CASE
             WHEN pr.is_nvf_facility = 'FALSE'
                  AND csr.rppobjectid IS NULL
-            THEN 'CSR'
-            ELSE 'Regular'
-        END AS lead_type,
+            THEN 'Regular'
+            ELSE 'CSR'
+        END AS Category_type,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
@@ -218,9 +218,9 @@ SELECT
     CASE
         WHEN pr.is_nvf_facility = 'FALSE'
              AND csr.rppobjectid IS NULL
-        THEN 'CSR'
-        ELSE 'Regular'
-    END AS lead_type
+        THEN 'Regular'
+        ELSE 'CSR'
+    END AS Category_type
 
 FROM latest_plan lp
 
@@ -255,7 +255,7 @@ WHERE
     AND pr.lead_source <> 'CSR'
     AND LOWER(pr.patient_name) NOT LIKE 'test%'
     AND LOWER(pr.patient_name) NOT LIKE '%test'
-    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '24 months'
+    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
     AND lp.due_date::date <= CURRENT_DATE;
 """
 
