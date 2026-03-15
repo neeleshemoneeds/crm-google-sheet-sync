@@ -20,6 +20,7 @@ SELECT
     pf.patient_id,
     pf.hosp_name,
     pf.feedback_date::date,
+    pr.lead_source,
     pf.is_absent,
     pf.updated_by_user_id,
 
