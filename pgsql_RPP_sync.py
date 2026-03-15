@@ -99,7 +99,8 @@ SELECT
     months_with_us::bigint,
     diagnosis_name,
     assessment_name,
-    amount::bigint
+    amount::bigint,
+    lead_type
 FROM (
     SELECT
         pr.patient_id,
@@ -140,6 +141,13 @@ FROM (
                  AND af.has_appointment = TRUE
             THEN 'After OPD'
         END AS direct_after_opd,
+
+        CASE
+            WHEN pr.is_nvf_facility = 'FALSE'
+                 AND csr.rppobjectid IS NULL
+            THEN 'CSR'
+            ELSE 'Regular'
+        END AS lead_type,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
@@ -205,7 +213,14 @@ SELECT
     (COUNT(*) OVER (PARTITION BY lp.patient_id)+1)::bigint AS months_with_us,
     dd.diagnosis_name,
     dd.assessment_name,
-    lp.amount::bigint
+    lp.amount::bigint,
+
+    CASE
+        WHEN pr.is_nvf_facility = 'FALSE'
+             AND csr.rppobjectid IS NULL
+        THEN 'CSR'
+        ELSE 'Regular'
+    END AS lead_type
 
 FROM latest_plan lp
 
@@ -217,6 +232,9 @@ LEFT JOIN role_pivot rp
 
 LEFT JOIN diagnosis_data dd
     ON dd.patient_id = pr.patient_id
+
+LEFT JOIN public.patient_csr_terms csr
+    ON csr.rppobjectid = lp._id
 
 WHERE
     lp.due_date::date < CURRENT_DATE
