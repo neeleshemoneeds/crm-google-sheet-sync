@@ -20,12 +20,25 @@ SELECT
     ps.created_by_user_id,
     ps.session_date,
     pr.lead_source,
-    ps.is_absent
+    ps.is_absent,
+
+    CASE
+        WHEN pr.is_nvf_facility = 'FALSE'
+             AND csr.patientid IS NULL
+        THEN 'Regular'
+        ELSE 'CSR'
+    END AS Category_type
+
 FROM public.patient_session ps
+
 LEFT JOIN public.patient_registration pr
     ON ps.patient_id = pr.patient_id
+
+LEFT JOIN public.patient_csr_terms csr
+    ON ps.patient_id = csr.patientid
+
 WHERE ps.session_date::date BETWEEN
-      (date_trunc('month', CURRENT_DATE)::date - INTERVAL '24 months')::date
+      (date_trunc('month', CURRENT_DATE)::date - INTERVAL '12 months')::date
       AND CURRENT_DATE;
 """
 
