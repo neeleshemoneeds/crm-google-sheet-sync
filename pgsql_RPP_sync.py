@@ -48,7 +48,7 @@ role_pivot AS (
 diagnosis_data AS (
     SELECT
         patient_id,
-        MAX(diagnosis_name::text) AS diagnosis_name,
+        MAX(primary_diagnosis::text) AS primary_diagnosis,
         MAX(assessment_name::text) AS assessment_name
     FROM public.patient_provision_diagnosis_treatment
     GROUP BY patient_id
@@ -99,7 +99,7 @@ SELECT
     direct_after_opd,
     patient_ref_id::bigint,
     months_with_us::bigint,
-    diagnosis_name,
+	primary_diagnosis,
     assessment_name,
     amount::bigint,
     Category_type
@@ -123,7 +123,7 @@ FROM (
         pp.due_date,
         pp.package_name,
         pp.amount,
-        dd.diagnosis_name,
+		dd.primary_diagnosis,
         dd.assessment_name,
         pp.months_with_us,
 
@@ -213,7 +213,7 @@ SELECT
     NULL AS direct_after_opd,
     lp.patient_ref_id::bigint,
     (COUNT(*) OVER (PARTITION BY lp.patient_id)+1)::bigint AS months_with_us,
-    dd.diagnosis_name,
+    dd.primary_diagnosis,
     dd.assessment_name,
     lp.amount::bigint,
 
@@ -269,6 +269,7 @@ THEN 'Stop'
 ELSE ''
 END AS carry_forward_flag
 FROM final_data;
+
 """
 
 df = pd.read_sql(query, conn)
