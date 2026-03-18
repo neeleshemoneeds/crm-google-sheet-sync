@@ -19,7 +19,7 @@ query = """
 WITH filtered_rpp AS (
     SELECT *
     FROM public.patient_rpp_registration
-    WHERE enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
+    WHERE enrollment_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '24 months'
       AND enrollment_date::date <= CURRENT_DATE
 ),
 
@@ -48,7 +48,7 @@ role_pivot AS (
 diagnosis_data AS (
     SELECT
         patient_id,
-        MAX(primary_diagnosis::text) AS primary_diagnosis,
+        MAX(diagnosis_name::text) AS diagnosis_name,
         MAX(assessment_name::text) AS assessment_name
     FROM public.patient_provision_diagnosis_treatment
     GROUP BY patient_id
@@ -74,9 +74,7 @@ latest_plan AS (
     SELECT DISTINCT ON (patient_id) *
     FROM filtered_rpp
     ORDER BY patient_id, enrollment_date::date DESC
-),
-
-final_data AS (
+)
 
 SELECT
     patient_id,
@@ -99,10 +97,9 @@ SELECT
     direct_after_opd,
     patient_ref_id::bigint,
     months_with_us::bigint,
-	primary_diagnosis,
+    diagnosis_name,
     assessment_name,
-    amount::bigint,
-    Category_type
+    amount::bigint
 FROM (
     SELECT
         pr.patient_id,
@@ -123,7 +120,7 @@ FROM (
         pp.due_date,
         pp.package_name,
         pp.amount,
-		dd.primary_diagnosis,
+        dd.diagnosis_name,
         dd.assessment_name,
         pp.months_with_us,
 
@@ -143,13 +140,6 @@ FROM (
                  AND af.has_appointment = TRUE
             THEN 'After OPD'
         END AS direct_after_opd,
-
-        CASE
-            WHEN pr.is_nvf_facility = 'FALSE'
-                 AND csr.rppobjectid IS NULL
-            THEN 'Regular'
-            ELSE 'CSR'
-        END AS Category_type,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pp.enrollment_date::date
@@ -213,16 +203,9 @@ SELECT
     NULL AS direct_after_opd,
     lp.patient_ref_id::bigint,
     (COUNT(*) OVER (PARTITION BY lp.patient_id)+1)::bigint AS months_with_us,
-    dd.primary_diagnosis,
+    dd.diagnosis_name,
     dd.assessment_name,
-    lp.amount::bigint,
-
-    CASE
-        WHEN pr.is_nvf_facility = 'FALSE'
-             AND csr.rppobjectid IS NULL
-        THEN 'Regular'
-        ELSE 'CSR'
-    END AS Category_type
+    lp.amount::bigint
 
 FROM latest_plan lp
 
@@ -235,41 +218,27 @@ LEFT JOIN role_pivot rp
 LEFT JOIN diagnosis_data dd
     ON dd.patient_id = pr.patient_id
 
-LEFT JOIN public.patient_csr_terms csr
-    ON csr.rppobjectid = lp._id
-
 WHERE
     lp.due_date::date < CURRENT_DATE
+
     AND NOT EXISTS (
         SELECT 1
         FROM public.patient_rpp_registration future_pp
         WHERE future_pp.patient_id = lp.patient_id
         AND future_pp.enrollment_date::date > lp.due_date::date
     )
+
     AND NOT EXISTS (
         SELECT 1
         FROM public.patient_csr_terms csr
         WHERE csr.rppobjectid = lp._id
     )
+
     AND pr.lead_source <> 'CSR'
     AND LOWER(pr.patient_name) NOT LIKE 'test%'
     AND LOWER(pr.patient_name) NOT LIKE '%test'
-    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 months'
-    AND lp.due_date::date <= CURRENT_DATE
-)
-
-SELECT *,
-CASE
-WHEN plan_status='NEW PLAN'
-     AND MAX(CASE WHEN plan_status IN ('RENEWAL','LATE RENEWAL','REVIVAL') THEN 1 ELSE 0 END)
-     OVER (PARTITION BY mobile_number)=1
-THEN 'Carry Forward'
-WHEN plan_status='NEW PLAN'
-THEN 'Stop'
-ELSE ''
-END AS carry_forward_flag
-FROM final_data;
-
+    AND lp.due_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '12 months'
+    AND lp.due_date::date <= CURRENT_DATE;
 """
 
 df = pd.read_sql(query, conn)
