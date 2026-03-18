@@ -31,9 +31,7 @@ SELECT
     appointment_time_slot,
     opd_status,
     amount::bigint AS amount,
-    is_suggest_RPP,
-    Category_type
-
+    is_suggest_RPP
 FROM (
     SELECT 
         pr.patient_id,
@@ -59,13 +57,6 @@ FROM (
             WHEN prev.patient_id IS NOT NULL THEN 'OLD OPD'
             ELSE 'NEW OPD'
         END AS opd_status,
-
-        CASE 
-            WHEN pr.is_nvf_facility = 'FALSE' 
-                 AND csr.appointmentobjectid IS NULL 
-            THEN 'Regular'
-            ELSE 'CSR'
-        END AS Category_type,
 
         ROW_NUMBER() OVER (
             PARTITION BY pr.mobile_number, pa.appointment_date::date
@@ -94,11 +85,12 @@ FROM (
     WHERE 
         pa.appointment_time_slot <> ''
         AND pa.appointment_status IN (1,5)
+        AND csr.appointmentobjectid IS NULL
+        AND pr.is_nvf_facility = 'FALSE'
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
         AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '12 months'
         AND pa.appointment_date::date <= CURRENT_DATE
-
 ) t
 WHERE rn = 1;
 """
