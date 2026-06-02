@@ -127,7 +127,7 @@ FROM (
         CASE
             WHEN pp.prev_enrollment IS NULL THEN 'NEW PLAN'
             WHEN pp.enrollment_date::date <= pp.prev_due THEN 'RENEWAL'
-            WHEN pp.enrollment_date::date <= pp.prev_due + INTERVAL '30 days'
+            WHEN pp.enrollment_date::date <= pp.prev_due + INTERVAL '45 days'
                 THEN 'LATE RENEWAL'
             ELSE 'REVIVAL'
         END AS plan_status,
