@@ -86,7 +86,7 @@ FROM (
         pa.appointment_time_slot <> ''
         AND pa.appointment_status IN (1,5)
         AND csr.appointmentobjectid IS NULL
-        AND pr.is_nvf_facility = 'FALSE'
+        AND pr.is_nvf_facility = FALSE
         AND LOWER(pr.patient_name) NOT LIKE 'test%'
         AND LOWER(pr.patient_name) NOT LIKE '%test'
         AND pa.appointment_date::date >= date_trunc('month', CURRENT_DATE)::date - INTERVAL '12 months'
