@@ -1,4 +1,4 @@
-name: CRM Auto Sync (Every 3 Hour)
+name: Auto Sync (Every 3 Hour)
 
 on:
   schedule:
@@ -21,22 +21,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-
-      - name: Run CRM Sync
-        env:
-          CRM_API_TOKEN: ${{ secrets.CRM_API_TOKEN }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
-          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-        run: |
-          python sync.py
-
-      - name: Remove Deleted CRM Leads
-        env:
-          CRM_API_TOKEN: ${{ secrets.CRM_API_TOKEN }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
-          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-        run: |
-          python delete_removed_leads.py
 
       # ---------- PostgreSQL OPD Sync ----------
       - name: Run PostgreSQL OPD Sync
@@ -64,7 +48,7 @@ jobs:
         run: |
           python pgsql_RPP_sync.py
 
-      # ---------- PostgreSQL  Sync ----------
+      # ---------- PostgreSQL Session Sync ----------
       - name: Run PostgreSQL Session Sync
         env:
           PG_HOST: ${{ secrets.PG_HOST }}
@@ -76,8 +60,8 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         run: |
           python pgsql_session_sync.py
-          
-      # ---------- PostgreSQL  Sync ----------
+
+      # ---------- PostgreSQL Feedback Sync ----------
       - name: Run PostgreSQL Feedback Sync
         env:
           PG_HOST: ${{ secrets.PG_HOST }}
@@ -89,4 +73,3 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         run: |
           python pgsql_feedback_sync.py
-
